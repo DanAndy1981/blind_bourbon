@@ -48,6 +48,7 @@ service cloud.firestore {
           && (
             (resource.data.claimedBy == null && request.resource.data.claimedBy == request.auth.uid)
             || (resource.data.claimedBy == request.auth.uid && request.resource.data.claimedBy == null)
+            || (resource.data.claimedBy == request.auth.uid && request.resource.data.claimedBy == request.auth.uid)
           )
         );
       }
