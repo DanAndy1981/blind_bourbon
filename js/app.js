@@ -8,8 +8,10 @@ import {
   formatMoney,
   formatNumber,
   phaseAtLeast,
+  summarizePlayerProgress,
 } from './scoring.js';
 import { BOTTLE_LETTERS, activeBottlesFromDraft, hasBottleSetupInfo } from './setup.js';
+import { renderTvScoreboard } from './scoreboard.js';
 
 const root = document.querySelector('#app');
 const LETTERS = BOTTLE_LETTERS;
@@ -196,7 +198,8 @@ async function route() {
   state.loading = false;
   render();
   state.pollTimer = setInterval(() => {
-    if (document.visibilityState === 'visible' && state.hostTab !== 'setup') loadSnapshot({ silent: true });
+    const shouldPoll = state.view === 'scoreboard' || document.visibilityState === 'visible';
+    if (shouldPoll && state.hostTab !== 'setup') loadSnapshot({ silent: true });
   }, 3500);
 }
 
@@ -827,23 +830,10 @@ function renderHostSetup() {
 }
 
 function renderScoreboardPage() {
-  const game = state.snapshot.game;
+  const calc = calculateGame(state.snapshot);
   const joinUrl = buildUrl(state.code).toString();
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&format=svg&qzone=1&data=${encodeURIComponent(joinUrl)}`;
-  return `
-    <header class="tv-scoreboard-header ink-frame">
-      <img class="tv-brand-mark" src="./assets/derby-logo.webp" alt="Blind Bourbon Derby">
-      <div class="tv-title-block">
-        <span class="kicker">Live Results · ${esc(PHASES.find((phase) => phase.id === game.phase)?.label || game.phase)}</span>
-        <h1>${esc(game.title || 'Blind Bourbon Derby')}</h1>
-        <p>${esc(game.theme || 'Blind tasting')} ${game.eventDate ? `· ${esc(formatDate(game.eventDate))}` : ''}</p>
-      </div>
-      <aside class="tv-join-card">
-        <img src="${esc(qrUrl)}" alt="QR code to join game ${esc(game.code || state.code)}">
-        <div><span>Scan to join</span><strong>${esc(game.code || state.code)}</strong><small>${esc(joinUrl)}</small></div>
-      </aside>
-    </header>
-    ${renderScoreboardBody(false)}`;
+  return renderTvScoreboard({ snapshot: state.snapshot, calc, joinUrl, qrUrl });
 }
 
 function revealedName(bottle, details) {
@@ -860,6 +850,8 @@ function renderScoreboardBody(hostEmbed = false) {
   const savant = calc.savant;
   const valueChampion = calc.valueChampion;
   const upset = calc.biggestUpset;
+  const biggestLosers = calc.biggestLosers || [];
+  const biggestLoserNames = biggestLosers.map((player) => player.name).join(' & ');
   const columnCount = Math.min(5, Math.max(1, calc.rankedBottles.length));
 
   return `
@@ -871,6 +863,7 @@ function renderScoreboardBody(hostEmbed = false) {
           ${renderChampionCard('Value Champion', valueChampion?.revealed ? revealedName(valueChampion, calc.detailsByLetter) : 'Awaiting reveal', valueChampion?.revealed ? `Value index ${formatNumber(valueChampion.valueIndex, 2)}` : 'Best finish for the money', 'dollar', valueChampion?.revealed)}
           ${renderChampionCard('Bourbon Savant', scoreboardOpen && savant ? savant.name : 'Leaderboard forming', scoreboardOpen && savant ? `${savant.total} points · Rank #${savant.rank}` : 'Game-show leaderboard winner', 'brain', scoreboardOpen && Boolean(savant))}
           ${renderChampionCard('Biggest Upset', upset?.revealed ? revealedName(upset, calc.detailsByLetter) : 'Awaiting reveal', upset?.revealed ? `${upset.upsetGap} places from price rank` : 'Price versus blind finish', 'upset', upset?.revealed)}
+          ${renderChampionCard('Biggest Loser', game.phase === 'final' && biggestLoserNames ? biggestLoserNames : 'Awaiting final score', game.phase === 'final' && biggestLosers.length ? `${biggestLosers[0].total} points · welcome to the basement` : 'Poop trophy not yet awarded', 'poop', game.phase === 'final' && Boolean(biggestLoserNames))}
         </div>
       </section>
 
@@ -919,9 +912,12 @@ function renderStandingCard(bottle, detailsByLetter) {
 
 function renderChampionCard(title, name, detail, icon, visible = false) {
   const icons = { trophy: '★', dollar: '$', brain: '♛', upset: '!' };
+  const iconMarkup = icon === 'poop'
+    ? '<img src="./assets/biggest-loser-poop.webp" alt="Steaming cartoon poop trophy">'
+    : icons[icon];
   return `
     <article class="champion-card ink-frame ${icon} ${visible ? 'is-revealed' : 'is-hidden'}">
-      <div class="champion-icon">${icons[icon]}</div>
+      <div class="champion-icon">${iconMarkup}</div>
       <span>${esc(title)}</span>
       <h2>${esc(name)}</h2>
       <p>${esc(detail)}</p>
@@ -979,7 +975,11 @@ function updateResponse(letter, field, value, { immediate = false, rerender = fa
   clearTimeout(state.saveTimers.get(key));
   const save = async () => {
     try {
-      await state.store.saveResponse(state.code, state.playerId, letter, { [field]: value });
+      const progress = summarizePlayerProgress({
+        bottles: state.snapshot.bottles,
+        responses: state.snapshot.responses.filter((item) => item.playerId === state.playerId),
+      });
+      await state.store.saveResponse(state.code, state.playerId, letter, { [field]: value }, progress);
       setSaveStatus('saved');
     } catch (error) {
       console.error(error);

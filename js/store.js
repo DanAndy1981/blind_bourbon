@@ -26,6 +26,22 @@ function responseId(playerId, letter) {
   return `${playerId}_${letter}`;
 }
 
+function normalizeScoreboardProgress(progress) {
+  if (!progress) return null;
+  const bounded = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+  const letters = (value) => Array.isArray(value)
+    ? value.filter((letter) => typeof letter === 'string').slice(0, 10)
+    : [];
+  return {
+    tastingProgress: bounded(progress.tastingProgress),
+    tastingComplete: Boolean(progress.tastingComplete),
+    tastingCompletedLetters: letters(progress.tastingCompletedLetters),
+    higherLowerProgress: bounded(progress.higherLowerProgress),
+    higherLowerComplete: Boolean(progress.higherLowerComplete),
+    higherLowerCompletedLetters: letters(progress.higherLowerCompletedLetters),
+  };
+}
+
 export async function createStore({ forceLocal = false } = {}) {
   const config = window.DERBY_FIREBASE_CONFIG || null;
   if (!forceLocal && configuredFirebase(config)) {
@@ -82,6 +98,12 @@ class LocalStore {
       active: true,
       claimedBy: null,
       bonusPoints: Number(player.bonusPoints || 0),
+      tastingProgress: 0,
+      tastingComplete: false,
+      tastingCompletedLetters: [],
+      higherLowerProgress: 0,
+      higherLowerComplete: false,
+      higherLowerCompletedLetters: [],
     })).filter((player) => player.name);
     const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);
     const bottles = activeBottleDrafts.map((bottle, index) => ({
@@ -152,7 +174,7 @@ class LocalStore {
     }
   }
 
-  async saveResponse(code, playerId, letter, patch) {
+  async saveResponse(code, playerId, letter, patch, progress = null) {
     const data = this.read(code);
     if (!data) throw new Error('Game not found.');
     const id = responseId(playerId, letter);
@@ -167,6 +189,9 @@ class LocalStore {
     };
     if (index >= 0) data.responses[index] = next;
     else data.responses.push(next);
+    const player = data.players.find((item) => item.id === playerId);
+    const publicProgress = normalizeScoreboardProgress(progress);
+    if (player && publicProgress) Object.assign(player, publicProgress);
     this.write(code, data);
   }
 
@@ -194,6 +219,12 @@ class LocalStore {
       order: index,
       active: true,
       bonusPoints: Number(player.bonusPoints || existingPlayers.get(player.id)?.bonusPoints || 0),
+      tastingProgress: 0,
+      tastingComplete: false,
+      tastingCompletedLetters: [],
+      higherLowerProgress: 0,
+      higherLowerComplete: false,
+      higherLowerCompletedLetters: [],
     })).filter((player) => player.name);
 
     const retainedPlayerIds = new Set(data.players.map((player) => player.id));
@@ -253,7 +284,15 @@ class LocalStore {
     if (!data) return;
     data.responses = [];
     delete data.picks;
-    data.players.forEach((player) => { player.bonusPoints = 0; });
+    data.players.forEach((player) => Object.assign(player, {
+      bonusPoints: 0,
+      tastingProgress: 0,
+      tastingComplete: false,
+      tastingCompletedLetters: [],
+      higherLowerProgress: 0,
+      higherLowerComplete: false,
+      higherLowerCompletedLetters: [],
+    }));
     data.bottles.forEach((bottle) => { bottle.revealed = false; });
     data.game.phase = 'tasting';
     this.write(code, data);
@@ -307,6 +346,14 @@ class LocalStore {
           proofHL: detail.proof > proofAvgBias ? 'Higher' : 'Lower',
           notes: playerIndex === 0 ? ['Easy sipper','Big spice','Classic profile','Dark and punchy','Thin finish'][bottleIndex] : '',
         });
+      });
+      Object.assign(player, {
+        tastingProgress: 1,
+        tastingComplete: true,
+        tastingCompletedLetters: data.bottles.map((bottle) => bottle.letter),
+        higherLowerProgress: 1,
+        higherLowerComplete: true,
+        higherLowerCompletedLetters: data.bottles.map((bottle) => bottle.letter),
       });
     });
     data.players[0].bonusPoints = 2;
@@ -380,6 +427,12 @@ class FirebaseStore {
         active: true,
         claimedBy: null,
         bonusPoints: Number(player.bonusPoints || 0),
+        tastingProgress: 0,
+        tastingComplete: false,
+        tastingCompletedLetters: [],
+        higherLowerProgress: 0,
+        higherLowerComplete: false,
+        higherLowerCompletedLetters: [],
       });
     });
 
@@ -467,14 +520,23 @@ class FirebaseStore {
     });
   }
 
-  async saveResponse(code, playerId, letter, patch) {
-    const { db, doc, setDoc, serverTimestamp } = this.api;
-    await setDoc(doc(db, 'games', normalizeCode(code), 'responses', responseId(playerId, letter)), {
+  async saveResponse(code, playerId, letter, patch, progress = null) {
+    const { db, doc, setDoc, updateDoc, serverTimestamp } = this.api;
+    code = normalizeCode(code);
+    await setDoc(doc(db, 'games', code, 'responses', responseId(playerId, letter)), {
       playerId,
       bottleLetter: letter,
       ...patch,
       updatedAt: serverTimestamp(),
     }, { merge: true });
+    const publicProgress = normalizeScoreboardProgress(progress);
+    if (!publicProgress) return;
+    try {
+      await updateDoc(doc(db, 'games', code, 'players', playerId), publicProgress);
+    } catch (error) {
+      // Keep the scorecard save successful during a staggered web/rules deployment.
+      console.warn('Live scoreboard progress could not be published yet:', error);
+    }
   }
 
   async updateGame(code, patch) {
@@ -513,6 +575,12 @@ class FirebaseStore {
         claimedBy: existing.claimedBy || null,
         claimedAt: existing.claimedAt || null,
         bonusPoints: Number(player.bonusPoints ?? existing.bonusPoints ?? 0),
+        tastingProgress: 0,
+        tastingComplete: false,
+        tastingCompletedLetters: [],
+        higherLowerProgress: 0,
+        higherLowerComplete: false,
+        higherLowerCompletedLetters: [],
       });
     });
     for (const old of playersSnap.docs) {
@@ -575,7 +643,15 @@ class FirebaseStore {
     const batch = writeBatch(db);
     responsesSnap.docs.forEach((item) => batch.delete(item.ref));
     picksSnap.docs.forEach((item) => batch.delete(item.ref));
-    playersSnap.docs.forEach((item) => batch.update(item.ref, { bonusPoints: 0 }));
+    playersSnap.docs.forEach((item) => batch.update(item.ref, {
+      bonusPoints: 0,
+      tastingProgress: 0,
+      tastingComplete: false,
+      tastingCompletedLetters: [],
+      higherLowerProgress: 0,
+      higherLowerComplete: false,
+      higherLowerCompletedLetters: [],
+    }));
     bottlesSnap.docs.forEach((item) => batch.update(item.ref, { revealed: false }));
     batch.update(doc(db, 'games', code), { phase: 'tasting', updatedAt: serverTimestamp() });
     await batch.commit();

@@ -45,6 +45,75 @@ export function phaseAtLeast(phase, target) {
   return phaseIndex(phase) >= phaseIndex(target);
 }
 
+export function summarizePlayerProgress({ bottles = [], responses = [] } = {}) {
+  const activeBottles = [...bottles].filter((bottle) => bottle.active !== false).sort(byOrder);
+  const responseByLetter = new Map(responses.map((response) => [response.bottleLetter, response]));
+  const playerResponses = activeBottles.map((bottle) => responseByLetter.get(bottle.letter) || {});
+  const ranks = playerResponses.map((response) => asNumber(response.finalRank)).filter((value) => value !== null);
+  const rankSetValid = ranks.length === activeBottles.length
+    && new Set(ranks).size === activeBottles.length
+    && ranks.every((rank) => Number.isInteger(rank) && rank >= 1 && rank <= activeBottles.length);
+
+  const tastingCompletedLetters = activeBottles
+    .filter((bottle, index) => {
+      const response = playerResponses[index];
+      return BUY_CHOICES.includes(response.buyChoice)
+        && asNumber(response.priceGuess) !== null
+        && asNumber(response.proofGuess) !== null
+        && Number.isInteger(asNumber(response.finalRank));
+    })
+    .map((bottle) => bottle.letter);
+  const higherLowerCompletedLetters = activeBottles
+    .filter((bottle, index) => {
+      const response = playerResponses[index];
+      return HL_CHOICES.includes(response.priceHL) && HL_CHOICES.includes(response.proofHL);
+    })
+    .map((bottle) => bottle.letter);
+
+  const tastingCompletedFields = playerResponses.reduce((count, response) => {
+    let row = 0;
+    if (BUY_CHOICES.includes(response.buyChoice)) row += 1;
+    if (asNumber(response.priceGuess) !== null) row += 1;
+    if (asNumber(response.proofGuess) !== null) row += 1;
+    if (Number.isInteger(asNumber(response.finalRank))) row += 1;
+    return count + row;
+  }, 0);
+  const higherLowerCompletedFields = playerResponses.reduce((count, response) =>
+    count + (HL_CHOICES.includes(response.priceHL) ? 1 : 0) + (HL_CHOICES.includes(response.proofHL) ? 1 : 0), 0);
+  const tastingTotalFields = activeBottles.length * 4;
+  const higherLowerTotalFields = activeBottles.length * 2;
+
+  return {
+    tastingProgress: tastingTotalFields ? tastingCompletedFields / tastingTotalFields : 0,
+    tastingComplete: tastingCompletedLetters.length === activeBottles.length && rankSetValid,
+    tastingCompletedLetters,
+    rankSetValid,
+    higherLowerProgress: higherLowerTotalFields ? higherLowerCompletedFields / higherLowerTotalFields : 0,
+    higherLowerComplete: higherLowerCompletedLetters.length === activeBottles.length,
+    higherLowerCompletedLetters,
+  };
+}
+
+function publishedProgress(player, calculated, hasResponses) {
+  if (hasResponses) return calculated;
+  const bounded = (value, fallback) => {
+    const number = asNumber(value);
+    return number === null ? fallback : Math.max(0, Math.min(1, number));
+  };
+  const letters = (value, fallback) => Array.isArray(value)
+    ? value.filter((letter) => typeof letter === 'string')
+    : fallback;
+  return {
+    ...calculated,
+    tastingProgress: bounded(player.tastingProgress, calculated.tastingProgress),
+    tastingComplete: typeof player.tastingComplete === 'boolean' ? player.tastingComplete : calculated.tastingComplete,
+    tastingCompletedLetters: letters(player.tastingCompletedLetters, calculated.tastingCompletedLetters),
+    higherLowerProgress: bounded(player.higherLowerProgress, calculated.higherLowerProgress),
+    higherLowerComplete: typeof player.higherLowerComplete === 'boolean' ? player.higherLowerComplete : calculated.higherLowerComplete,
+    higherLowerCompletedLetters: letters(player.higherLowerCompletedLetters, calculated.higherLowerCompletedLetters),
+  };
+}
+
 export function calculateGame(snapshot = {}) {
   const game = snapshot.game || {};
   const players = [...(snapshot.players || [])]
@@ -161,6 +230,9 @@ export function calculateGame(snapshot = {}) {
     let priceHL = 0;
     let proofHL = 0;
     let priceIsRight = 0;
+    const responseDocuments = bottles
+      .map((bottle) => responseMap.get(`${player.id}::${bottle.letter}`))
+      .filter(Boolean);
     const playerResponses = bottles.map((bottle) => responseMap.get(`${player.id}::${bottle.letter}`) || {});
     const winnerLetter = bottles.find((bottle, index) => asNumber(playerResponses[index].finalRank) === 1)?.letter || null;
     const lastLetter = bottles.find((bottle, index) => asNumber(playerResponses[index].finalRank) === bottles.length)?.letter || null;
@@ -179,28 +251,11 @@ export function calculateGame(snapshot = {}) {
     const bonus = asNumber(player.bonusPoints) ?? 0;
     const total = priceHL + proofHL + priceIsRight + winnerPick + lastPick + bonus;
 
-    const ranks = playerResponses.map((response) => asNumber(response.finalRank)).filter((value) => value !== null);
-    const uniqueRanks = new Set(ranks);
-    const tastingFieldsComplete = playerResponses.every((response) =>
-      BUY_CHOICES.includes(response.buyChoice) &&
-      asNumber(response.priceGuess) !== null &&
-      asNumber(response.proofGuess) !== null &&
-      Number.isInteger(asNumber(response.finalRank))
+    const progress = publishedProgress(
+      player,
+      summarizePlayerProgress({ bottles, responses: responseDocuments }),
+      responseDocuments.length > 0,
     );
-    const rankSetValid = ranks.length === bottles.length && uniqueRanks.size === bottles.length && ranks.every((rank) => rank >= 1 && rank <= bottles.length);
-    const higherLowerComplete = playerResponses.every((response) => HL_CHOICES.includes(response.priceHL) && HL_CHOICES.includes(response.proofHL));
-
-    const tastingCompletedFields = playerResponses.reduce((count, response) => {
-      let row = 0;
-      if (BUY_CHOICES.includes(response.buyChoice)) row += 1;
-      if (asNumber(response.priceGuess) !== null) row += 1;
-      if (asNumber(response.proofGuess) !== null) row += 1;
-      if (Number.isInteger(asNumber(response.finalRank))) row += 1;
-      return count + row;
-    }, 0);
-    const tastingTotalFields = bottles.length * 4;
-    const hlCompletedFields = playerResponses.reduce((count, response) => count + (HL_CHOICES.includes(response.priceHL) ? 1 : 0) + (HL_CHOICES.includes(response.proofHL) ? 1 : 0), 0);
-    const hlTotalFields = bottles.length * 2;
 
     return {
       ...player,
@@ -214,11 +269,7 @@ export function calculateGame(snapshot = {}) {
       bonus,
       total,
       rank: null,
-      tastingComplete: tastingFieldsComplete && rankSetValid,
-      rankSetValid,
-      higherLowerComplete,
-      tastingProgress: tastingTotalFields ? tastingCompletedFields / tastingTotalFields : 0,
-      higherLowerProgress: hlTotalFields ? hlCompletedFields / hlTotalFields : 0,
+      ...progress,
     };
   });
 
@@ -235,9 +286,15 @@ export function calculateGame(snapshot = {}) {
   const biggestUpset = upsetCandidates.length
     ? upsetCandidates.reduce((best, bottle) => bottle.upsetGap > best.upsetGap ? bottle : best)
     : null;
-  const savant = playerResults.length && playerResults.some((player) => player.total > 0)
-    ? playerResults.reduce((best, player) => player.total > best.total ? player : best)
-    : null;
+  const highestPlayerScore = playerResults.length ? Math.max(...playerResults.map((player) => player.total)) : null;
+  const savants = highestPlayerScore === null
+    ? []
+    : playerResults.filter((player) => player.total === highestPlayerScore);
+  const savant = highestPlayerScore !== null && highestPlayerScore > 0 ? savants[0] : null;
+  const lowestPlayerScore = playerResults.length ? Math.min(...playerResults.map((player) => player.total)) : null;
+  const biggestLosers = lowestPlayerScore === null
+    ? []
+    : playerResults.filter((player) => player.total === lowestPlayerScore);
 
   return {
     game,
@@ -254,6 +311,8 @@ export function calculateGame(snapshot = {}) {
     valueChampion,
     biggestUpset,
     savant,
+    savants,
+    biggestLosers,
   };
 }
 

@@ -36,6 +36,14 @@ Each phone gets a persistent anonymous Firebase identity. The browser that creat
 
 These rules allow players to see names and mystery letters, write only to the player card they claimed, and keep bottle names/prices/proofs hidden until reveal. The game creator can manage the facilitator booth.
 
+The included [`firebase.json`](./firebase.json) also lets an authenticated Firebase CLI publish the same rules from the repository root:
+
+```bash
+firebase deploy --only firestore:rules --project blind-bourbon-derby
+```
+
+The live TV progress fields contain only percentages, completion flags, and finished sample letters. Individual guesses and rankings remain private until the reveal.
+
 ## 5. Paste the Firebase web configuration
 
 Open [`firebase-config.js`](./firebase-config.js) and replace the `PASTE_*` values with the values from the Firebase web-app configuration.
