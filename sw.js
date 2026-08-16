@@ -1,9 +1,10 @@
-const CACHE_NAME = 'blind-bourbon-derby-v2-moose-fix';
+const CACHE_NAME = 'blind-bourbon-derby-v3-player-claim-fix';
 const APP_SHELL = [
   './',
   './index.html',
   './css/styles.css',
   './js/app.js',
+  './js/claim-guard.js',
   './js/store.js',
   './js/scoring.js',
   './assets/derby-banner.webp',
