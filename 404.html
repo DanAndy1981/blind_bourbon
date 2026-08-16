@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Blind Bourbon Derby</title>
+<script>
+  const path = location.pathname;
+  const base = path.endsWith('/') ? path : path.slice(0, path.lastIndexOf('/') + 1);
+  location.replace(base + location.search + location.hash);
+</script>
+<p>Returning to the Blind Bourbon Derby…</p>

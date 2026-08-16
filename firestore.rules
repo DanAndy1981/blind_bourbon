@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function gameData(code) {
+      return get(/databases/$(database)/documents/games/$(code)).data;
+    }
+
+    function isHost(code) {
+      return signedIn() && gameData(code).hostUid == request.auth.uid;
+    }
+
+    // During initial game creation, the parent game and all child documents
+    // are written in one atomic batch. getAfter() lets the child-create rules
+    // validate the parent game as it will exist when that batch commits.
+    function gameDataAfter(code) {
+      return getAfter(/databases/$(database)/documents/games/$(code)).data;
+    }
+
+    function isHostAfter(code) {
+      return signedIn() && gameDataAfter(code).hostUid == request.auth.uid;
+    }
+
+    function playerData(code, playerId) {
+      return get(/databases/$(database)/documents/games/$(code)/players/$(playerId)).data;
+    }
+
+    function ownsPlayer(code, playerId) {
+      return signedIn() && playerData(code, playerId).claimedBy == request.auth.uid;
+    }
+
+    match /games/{code} {
+      allow create: if signedIn()
+        && request.resource.data.hostUid == request.auth.uid;
+      allow read: if signedIn();
+      allow update, delete: if isHost(code);
+
+      match /players/{playerId} {
+        allow read: if signedIn();
+        allow create: if isHostAfter(code);
+        allow delete: if isHost(code);
+        allow update: if isHost(code) || (
+          signedIn()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy', 'claimedAt'])
+          && (
+            (resource.data.claimedBy == null && request.resource.data.claimedBy == request.auth.uid)
+            || (resource.data.claimedBy == request.auth.uid && request.resource.data.claimedBy == null)
+          )
+        );
+      }
+
+      match /bottles/{letter} {
+        allow read: if signedIn();
+        allow create: if isHostAfter(code);
+        allow update, delete: if isHost(code);
+      }
+
+      match /bottleDetails/{letter} {
+        allow read: if isHost(code)
+          || get(/databases/$(database)/documents/games/$(code)/bottles/$(letter)).data.revealed == true
+          || gameData(code).phase == 'final';
+        allow create: if isHostAfter(code);
+        allow update, delete: if isHost(code);
+      }
+
+      match /responses/{responseId} {
+        allow read: if isHost(code)
+          || gameData(code).phase == 'reveal'
+          || gameData(code).phase == 'final'
+          || (resource.data.playerId != null && ownsPlayer(code, resource.data.playerId));
+
+        allow create, update: if signedIn()
+          && request.resource.data.playerId is string
+          && request.resource.data.bottleLetter is string
+          && responseId == request.resource.data.playerId + '_' + request.resource.data.bottleLetter
+          && ownsPlayer(code, request.resource.data.playerId);
+
+        allow delete: if isHost(code)
+          || (resource.data.playerId != null && ownsPlayer(code, resource.data.playerId));
+      }
+
+      match /picks/{playerId} {
+        allow read: if isHost(code)
+          || gameData(code).phase == 'reveal'
+          || gameData(code).phase == 'final'
+          || ownsPlayer(code, playerId);
+
+        allow create, update: if ownsPlayer(code, playerId)
+          && request.resource.data.playerId == playerId;
+
+        allow delete: if isHost(code) || ownsPlayer(code, playerId);
+      }
+    }
+  }
+}
