@@ -1,9 +1,36 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { calculateGame, summarizePlayerProgress } from '../js/scoring.js';
 import { renderTvScoreboard, scoreboardStage } from '../js/scoreboard.js';
 import { activeBottlesFromDraft } from '../js/setup.js';
+
+function renderTvPhase(phase) {
+  const snapshot = {
+    game: { code: 'TEST10', title: 'Test Derby', phase, publicAverages: { A: { price: 42, proof: 100 } } },
+    players: [{ id: 'p1', name: 'Daniel', order: 0, active: true }],
+    bottles: [{ letter: 'A', order: 0, active: true, revealed: phase === 'final' }],
+    details: {},
+    responses: [],
+  };
+
+  return renderTvScoreboard({
+    snapshot,
+    calc: calculateGame(snapshot),
+    joinUrl: 'https://example.test/?game=TEST10',
+    qrUrl: 'https://example.test/qr.svg',
+  });
+}
+
+function imageAltFor(html, assetName) {
+  const escapedAssetName = assetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const imageTag = html.match(new RegExp(`<img\\b[^>]*${escapedAssetName}[^>]*>`, 'i'))?.[0];
+  assert.ok(imageTag, `Expected ${assetName} to be rendered`);
+  const alt = imageTag.match(/\balt="([^"]+)"/i)?.[1];
+  assert.ok(alt, `Expected ${assetName} to have meaningful alt text`);
+  return alt;
+}
 
 test('blank bourbon rows are excluded and active rows are capped at A-J', () => {
   const draft = [
@@ -110,6 +137,25 @@ test('the TV renderer maps every game phase to an active game-show stage', () =>
   assert.equal(scoreboardStage('something-old'), 'setup');
 });
 
+test('the tasting TV stage renders the Bourbon Creek moose artwork with meaningful alt text', () => {
+  const html = renderTvPhase('tasting');
+  const alt = imageAltFor(html, 'moose-bourbon-creek.webp');
+
+  assert.match(html, /data-tv-phase="tasting"/);
+  assert.match(alt, /moose/i);
+  assert.match(alt, /bourbon|creek|tasting/i);
+});
+
+test('the Higher or Lower TV stage renders the microphone host artwork with bourbon context', () => {
+  const html = renderTvPhase('higherLower');
+  const alt = imageAltFor(html, 'moose-game-show-host.webp');
+
+  assert.match(html, /data-tv-phase="higherLower"/);
+  assert.match(alt, /moose/i);
+  assert.match(alt, /mic|microphone/i);
+  assert.match(alt, /bourbon/i);
+});
+
 test('the final TV stage renders the real biggest-loser artwork and no persistent header', () => {
   const snapshot = {
     game: { code: 'TEST10', title: 'Test Derby', phase: 'final' },
@@ -132,5 +178,18 @@ test('the final TV stage renders the real biggest-loser artwork and no persisten
   assert.match(html, /data-award="biggest-loser"/);
   assert.match(html, /Last Place/);
   assert.match(html, /biggest-loser-poop\.webp/);
+  assert.match(imageAltFor(html, 'biggest-loser-poop.webp'), /poop/i);
   assert.doesNotMatch(html, /tv-scoreboard-header|under wraps/i);
+});
+
+test('the service worker precaches every phase-specific TV artwork asset', () => {
+  const serviceWorkerSource = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+
+  for (const asset of [
+    './assets/moose-bourbon-creek.webp',
+    './assets/moose-game-show-host.webp',
+    './assets/biggest-loser-poop.webp',
+  ]) {
+    assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
+  }
 });

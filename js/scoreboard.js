@@ -88,7 +88,7 @@ function renderTastingStage(calc) {
         ${calc.playerResults.map((player, index) => renderPlayerProgress(player, letters, index)).join('')}
       </div>
       <aside class="tv-tasting-rail">
-        <img src="./assets/moose.webp" alt="The Drunk Moose watches the tasting progress">
+        <img src="./assets/moose-bourbon-creek.webp" alt="The Drunk Moose stands in a creek of bourbon and licks it as it spills from a copper still">
         <div class="tv-ready-counter"><strong>${ready}<small>/ ${calc.playerResults.length}</small></strong><span>Palates locked</span></div>
         <p>${ready === calc.playerResults.length && ready ? 'Every glass is scored. Somebody ring the bell.' : 'Scores move live as every mystery glass gets finished.'}</p>
       </aside>
@@ -122,7 +122,7 @@ function renderHigherLowerStage(game, calc) {
       </div>
       <aside class="tv-hl-host">
         <div class="tv-hl-ready"><strong>${ready}<small>/${calc.playerResults.length}</small></strong><span>crowd cards locked</span></div>
-        <img src="./assets/moose-game-show-host.webp" alt="The Drunk Moose in a sweaty velvet suit holding a long game-show microphone">
+        <img src="./assets/moose-game-show-host.webp" alt="The Drunk Moose in a sweaty velvet suit holding a long game-show wand microphone and a glass of bourbon">
         <p>“The crowd has opinions. Accuracy remains under investigation.”</p>
       </aside>
     </section>`;
@@ -200,7 +200,7 @@ function renderFinalStage(calc) {
           <div class="tv-savant-star" aria-hidden="true">★</div>
         </article>
         <article class="tv-final-award is-loser" data-award="biggest-loser">
-          <img src="./assets/biggest-loser-poop.webp" alt="A steaming cartoon poop pile with flies">
+          <img src="./assets/biggest-loser-poop.webp" alt="A rubber-hose cartoon poop pile steaming while flies buzz around it">
           <div><span>Biggest Loser${losers.length > 1 ? 's' : ''}</span>
             <h2>${losers.length ? esc(playerNames(losers)) : 'No loser yet'}</h2>
             <strong>${losingScore} points</strong>
