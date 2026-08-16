@@ -1,4 +1,4 @@
-const FIREBASE_VERSION = '12.17.1';
+const FIREBASE_VERSION = '12.16.0';
 const LOCAL_PREFIX = 'blind-bourbon-derby::';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
