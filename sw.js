@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v3-player-claim-fix';
+const CACHE_NAME = 'blind-bourbon-derby-v4-tv-scoreboard';
 const APP_SHELL = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const APP_SHELL = [
   './js/claim-guard.js',
   './js/store.js',
   './js/scoring.js',
+  './js/setup.js',
   './assets/derby-banner.webp',
   './assets/derby-logo.webp',
   './assets/derby-scorecard.webp',

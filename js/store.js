@@ -1,3 +1,5 @@
+import { activeBottlesFromDraft } from './setup.js';
+
 const FIREBASE_VERSION = '12.16.0';
 const LOCAL_PREFIX = 'blind-bourbon-derby::';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -81,13 +83,14 @@ class LocalStore {
       claimedBy: null,
       bonusPoints: Number(player.bonusPoints || 0),
     })).filter((player) => player.name);
-    const bottles = (payload.bottles || []).map((bottle, index) => ({
+    const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);
+    const bottles = activeBottleDrafts.map((bottle, index) => ({
       letter: bottle.letter,
       order: index,
       active: true,
       revealed: Boolean(bottle.revealed),
     }));
-    const details = Object.fromEntries((payload.bottles || []).map((bottle) => [bottle.letter, {
+    const details = Object.fromEntries(activeBottleDrafts.map((bottle) => [bottle.letter, {
       letter: bottle.letter,
       name: bottle.name || '',
       distillery: bottle.distillery || '',
@@ -110,15 +113,20 @@ class LocalStore {
       bottles,
       details,
       responses: [],
-      picks: [],
     };
     this.write(code, data);
     return code;
   }
 
-  async loadGame(code) {
+  async loadGame(code, { playerId = null, role = 'player' } = {}) {
     const data = this.read(code);
-    return data ? clone(data) : null;
+    if (!data) return null;
+    const snapshot = clone(data);
+    if (role === 'host') return snapshot;
+    snapshot.details = Object.fromEntries(Object.entries(snapshot.details || {}).filter(([letter]) => snapshot.bottles.some((bottle) => bottle.letter === letter && bottle.revealed)));
+    if (role === 'scoreboard' && (snapshot.game.phase === 'reveal' || snapshot.game.phase === 'final')) return snapshot;
+    snapshot.responses = playerId ? snapshot.responses.filter((response) => response.playerId === playerId) : [];
+    return snapshot;
   }
 
   async claimPlayer(code, playerId) {
@@ -162,21 +170,6 @@ class LocalStore {
     this.write(code, data);
   }
 
-  async savePicks(code, playerId, patch) {
-    const data = this.read(code);
-    if (!data) throw new Error('Game not found.');
-    const index = data.picks.findIndex((pick) => pick.playerId === playerId);
-    const next = {
-      ...(index >= 0 ? data.picks[index] : {}),
-      playerId,
-      ...patch,
-      updatedAt: nowIso(),
-    };
-    if (index >= 0) data.picks[index] = next;
-    else data.picks.push(next);
-    this.write(code, data);
-  }
-
   async updateGame(code, patch) {
     const data = this.read(code);
     if (!data) throw new Error('Game not found.');
@@ -205,18 +198,18 @@ class LocalStore {
 
     const retainedPlayerIds = new Set(data.players.map((player) => player.id));
     data.responses = data.responses.filter((response) => retainedPlayerIds.has(response.playerId));
-    data.picks = data.picks.filter((pick) => retainedPlayerIds.has(pick.playerId));
 
+    const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);
     const oldBottles = new Map(data.bottles.map((bottle) => [bottle.letter, bottle]));
     const oldDetails = data.details || {};
-    data.bottles = payload.bottles.map((bottle, index) => ({
+    data.bottles = activeBottleDrafts.map((bottle, index) => ({
       ...(oldBottles.get(bottle.letter) || {}),
       letter: bottle.letter,
       order: index,
       active: true,
       revealed: Boolean(oldBottles.get(bottle.letter)?.revealed),
     }));
-    data.details = Object.fromEntries(payload.bottles.map((bottle) => [bottle.letter, {
+    data.details = Object.fromEntries(activeBottleDrafts.map((bottle) => [bottle.letter, {
       ...(oldDetails[bottle.letter] || {}),
       letter: bottle.letter,
       name: bottle.name || '',
@@ -259,7 +252,7 @@ class LocalStore {
     const data = this.read(code);
     if (!data) return;
     data.responses = [];
-    data.picks = [];
+    delete data.picks;
     data.players.forEach((player) => { player.bonusPoints = 0; });
     data.bottles.forEach((bottle) => { bottle.revealed = false; });
     data.game.phase = 'tasting';
@@ -295,7 +288,6 @@ class LocalStore {
     ];
     data.players.forEach((player, playerIndex) => {
       const order = rankOrders[playerIndex];
-      data.picks.push({ playerId: player.id, winnerPick: playerIndex === 2 ? 'C' : 'D', lastPick: 'E' });
       data.bottles.forEach((bottle, bottleIndex) => {
         const detail = data.details[bottle.letter];
         const rank = order.indexOf(bottle.letter) + 1;
@@ -367,6 +359,7 @@ class FirebaseStore {
     if ((await getDoc(doc(db, 'games', code))).exists()) throw new Error('That game code already exists.');
 
     const batch = writeBatch(db);
+    const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);
     batch.set(doc(db, 'games', code), {
       code,
       title: payload.title || 'Blind Bourbon Derby',
@@ -390,7 +383,7 @@ class FirebaseStore {
       });
     });
 
-    (payload.bottles || []).forEach((bottle, index) => {
+    activeBottleDrafts.forEach((bottle, index) => {
       batch.set(doc(db, 'games', code, 'bottles', bottle.letter), {
         letter: bottle.letter,
         order: index,
@@ -429,37 +422,28 @@ class FirebaseStore {
     let detailDocs = [];
     if (isHost) {
       detailDocs = (await getDocs(collection(db, 'games', code, 'bottleDetails'))).docs;
-    } else {
-      const visibleLetters = bottles.filter((bottle) => bottle.revealed || game.phase === 'final').map((bottle) => bottle.letter);
+    } else if (role === 'scoreboard') {
+      const visibleLetters = bottles.filter((bottle) => bottle.revealed).map((bottle) => bottle.letter);
       const snaps = await Promise.all(visibleLetters.map((letter) => getDoc(doc(db, 'games', code, 'bottleDetails', letter))));
       detailDocs = snaps.filter((snap) => snap.exists());
     }
     const details = Object.fromEntries(detailDocs.map((item) => [item.id, item.data()]));
 
     let responses = [];
-    let picks = [];
-    const canReadAll = isHost || game.phase === 'reveal' || game.phase === 'final' || role === 'host';
+    const canReadAll = isHost || role === 'host' || (role === 'scoreboard' && (game.phase === 'reveal' || game.phase === 'final'));
     try {
       if (canReadAll) {
-        const [responsesSnap, picksSnap] = await Promise.all([
-          getDocs(collection(db, 'games', code, 'responses')),
-          getDocs(collection(db, 'games', code, 'picks')),
-        ]);
+        const responsesSnap = await getDocs(collection(db, 'games', code, 'responses'));
         responses = responsesSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-        picks = picksSnap.docs.map((item) => item.data());
       } else if (playerId) {
-        const [responsesSnap, pickSnap] = await Promise.all([
-          getDocs(query(collection(db, 'games', code, 'responses'), where('playerId', '==', playerId))),
-          getDoc(doc(db, 'games', code, 'picks', playerId)),
-        ]);
+        const responsesSnap = await getDocs(query(collection(db, 'games', code, 'responses'), where('playerId', '==', playerId)));
         responses = responsesSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-        if (pickSnap.exists()) picks = [pickSnap.data()];
       }
     } catch (error) {
       console.warn('Some private game data could not be read yet:', error);
     }
 
-    return { game, players, bottles, details, responses, picks };
+    return { game, players, bottles, details, responses };
   }
 
   async claimPlayer(code, playerId) {
@@ -488,15 +472,6 @@ class FirebaseStore {
     await setDoc(doc(db, 'games', normalizeCode(code), 'responses', responseId(playerId, letter)), {
       playerId,
       bottleLetter: letter,
-      ...patch,
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-  }
-
-  async savePicks(code, playerId, patch) {
-    const { db, doc, setDoc, serverTimestamp } = this.api;
-    await setDoc(doc(db, 'games', normalizeCode(code), 'picks', playerId), {
-      playerId,
       ...patch,
       updatedAt: serverTimestamp(),
     }, { merge: true });
@@ -545,7 +520,8 @@ class FirebaseStore {
     }
 
     const retainedLetters = new Set();
-    payload.bottles.forEach((bottle, index) => {
+    const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);
+    activeBottleDrafts.forEach((bottle, index) => {
       retainedLetters.add(bottle.letter);
       const existing = oldBottles.get(bottle.letter) || {};
       batch.set(doc(db, 'games', code, 'bottles', bottle.letter), {

@@ -11,7 +11,7 @@ The site has no build step. It is plain HTML, CSS, and JavaScript, so the front 
 - One claimed mobile scorecard per player
 - Automatic saving on each phone
 - `Hell Yes / Maybe / Nope`, price guess, proof guess, tasting notes, and unique final ranking
-- Winner and last-place picks
+- Winner and last-place picks derived automatically from each player's unique final rankings
 - A facilitator-controlled Higher / Lower round using the club's average price and proof guesses
 - Last-to-first bottle reveals
 - Automatic scoring and live leaderboards
@@ -27,8 +27,8 @@ The site has no build step. It is plain HTML, CSS, and JavaScript, so the front 
 | Price Higher / Lower | 1 per active bottle |
 | Proof Higher / Lower | 1 per active bottle |
 | Price Is Right | 3 for closest without going over; 2 for the lowest guess when everyone goes over |
-| Pick the winner | 5 |
-| Pick last place | 3 |
+| Rank the club winner #1 | 5 |
+| Rank the club last-place bottle last | 3 |
 | Trivia / bonus | Facilitator enters the points |
 
 Bottle finish is based on average final rank, with `Hell Yes` votes and then `Maybe` votes as tie-breakers. Value Champion uses finish relative to retail price. Biggest Upset compares price rank with blind club finish.
@@ -64,6 +64,8 @@ Follow [`FIREBASE_SETUP.md`](./FIREBASE_SETUP.md). The short version is:
 5. She advances the round from **Setup** to **Blind Tasting**, **Higher / Lower**, **The Reveal**, and **Final Results**.
 6. During the reveal, she can reveal one bottle at a time from last place to first.
 
+Only rows with a Bourbon name are active. Blank setup rows never appear on player cards, and the field is capped at samples A–J. The separate Live Results URL is designed to stay open on a TV: it includes the join QR code, winner cards, Derby finish, and Bourbon Savant leaderboard in one auto-refreshing view.
+
 The browser that creates a live game owns the facilitator controls through Firebase's anonymous sign-in. Use the same browser/device all night. Avoid clearing that browser's site data until the event is over.
 
 ## GitHub Pages
@@ -88,6 +90,7 @@ blind-bourbon-derby/
 ├── sw.js
 ├── css/styles.css
 ├── js/app.js
+├── js/setup.js
 ├── js/store.js
 ├── js/scoring.js
 └── assets/
@@ -95,7 +98,7 @@ blind-bourbon-derby/
 
 ## Practical notes
 
-- The secret bottle documents are hidden from ordinary players until each bottle is revealed or the game reaches Final Results.
+- Player cards stay blind through the reveal and Final Results. Secret bottle details appear only in the facilitator booth and on Live Results for bottles the facilitator has explicitly revealed.
 - This is a party game, not a hardened competition platform. A technically determined guest could still inspect front-end behavior or attempt to manipulate his own answers.
 - Do not commit unrelated private Firebase credentials. Firebase's web configuration is designed to be present in client code; the included Firestore rules are what enforce access.
 - The app polls for changes roughly every few seconds, which is plenty quick for a tasting and keeps the code simple.
