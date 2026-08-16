@@ -15,7 +15,8 @@ The site has no build step. It is plain HTML, CSS, and JavaScript, so the front 
 - A facilitator-controlled Higher / Lower round using the club's average price and proof guesses
 - Last-to-first bottle reveals
 - Automatic scoring and live leaderboards
-- Derby Champion, Value Champion, Bourbon Savant, and Biggest Upset awards
+- Derby Champion, Value Champion, Bourbon Savant, Biggest Upset, and a deliberately awful Biggest Loser award
+- An always-active, phase-aware retro TV gameboard for Chromecast
 - Manual trivia/bonus points
 - Installable app icons and an offline app shell
 - A populated single-browser demo that works before Firebase is configured
@@ -64,7 +65,7 @@ Follow [`FIREBASE_SETUP.md`](./FIREBASE_SETUP.md). The short version is:
 5. She advances the round from **Setup** to **Blind Tasting**, **Higher / Lower**, **The Reveal**, and **Final Results**.
 6. During the reveal, she can reveal one bottle at a time from last place to first.
 
-Only rows with a Bourbon name are active. Blank setup rows never appear on player cards, and the field is capped at samples A–J. The separate Live Results URL is designed to stay open on a TV: it includes the join QR code, winner cards, Derby finish, and Bourbon Savant leaderboard in one auto-refreshing view.
+Only rows with a Bourbon name are active. Blank setup rows never appear on player cards, and the field is capped at samples A–J. The separate Live Results URL is designed to stay open on a TV all night. It automatically changes from contestant check-in to the live mystery-glass progress race, Higher / Lower game-show set, bottle reveal, and final awards without clicks or scrolling.
 
 The browser that creates a live game owns the facilitator controls through Firebase's anonymous sign-in. Use the same browser/device all night. Avoid clearing that browser's site data until the event is over.
 
@@ -85,11 +86,13 @@ blind-bourbon-derby/
 ├── index.html
 ├── 404.html
 ├── firebase-config.js
+├── firebase.json
 ├── firestore.rules
 ├── manifest.webmanifest
 ├── sw.js
 ├── css/styles.css
 ├── js/app.js
+├── js/scoreboard.js
 ├── js/setup.js
 ├── js/store.js
 ├── js/scoring.js
@@ -99,6 +102,7 @@ blind-bourbon-derby/
 ## Practical notes
 
 - Player cards stay blind through the reveal and Final Results. Secret bottle details appear only in the facilitator booth and on Live Results for bottles the facilitator has explicitly revealed.
+- Before the reveal, player documents expose only sanitized completion percentages and finished sample letters so the TV can animate progress without exposing anybody's guesses or rankings.
 - This is a party game, not a hardened competition platform. A technically determined guest could still inspect front-end behavior or attempt to manipulate his own answers.
 - Do not commit unrelated private Firebase credentials. Firebase's web configuration is designed to be present in client code; the included Firestore rules are what enforce access.
 - The app polls for changes roughly every few seconds, which is plenty quick for a tasting and keeps the code simple.

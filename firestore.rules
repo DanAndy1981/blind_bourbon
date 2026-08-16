@@ -32,6 +32,23 @@ service cloud.firestore {
       return signedIn() && playerData(code, playerId).claimedBy == request.auth.uid;
     }
 
+    function validScoreboardProgress() {
+      return request.resource.data.tastingProgress is number
+        && request.resource.data.tastingProgress >= 0
+        && request.resource.data.tastingProgress <= 1
+        && request.resource.data.tastingComplete is bool
+        && request.resource.data.tastingCompletedLetters is list
+        && request.resource.data.tastingCompletedLetters.size() <= 10
+        && request.resource.data.tastingCompletedLetters.hasOnly(['A','B','C','D','E','F','G','H','I','J'])
+        && request.resource.data.higherLowerProgress is number
+        && request.resource.data.higherLowerProgress >= 0
+        && request.resource.data.higherLowerProgress <= 1
+        && request.resource.data.higherLowerComplete is bool
+        && request.resource.data.higherLowerCompletedLetters is list
+        && request.resource.data.higherLowerCompletedLetters.size() <= 10
+        && request.resource.data.higherLowerCompletedLetters.hasOnly(['A','B','C','D','E','F','G','H','I','J']);
+    }
+
     match /games/{code} {
       allow create: if signedIn()
         && request.resource.data.hostUid == request.auth.uid;
@@ -44,11 +61,28 @@ service cloud.firestore {
         allow delete: if isHost(code);
         allow update: if isHost(code) || (
           signedIn()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy', 'claimedAt'])
           && (
-            (resource.data.claimedBy == null && request.resource.data.claimedBy == request.auth.uid)
-            || (resource.data.claimedBy == request.auth.uid && request.resource.data.claimedBy == null)
-            || (resource.data.claimedBy == request.auth.uid && request.resource.data.claimedBy == request.auth.uid)
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy', 'claimedAt'])
+              && (
+                (resource.data.claimedBy == null && request.resource.data.claimedBy == request.auth.uid)
+                || (resource.data.claimedBy == request.auth.uid && request.resource.data.claimedBy == null)
+                || (resource.data.claimedBy == request.auth.uid && request.resource.data.claimedBy == request.auth.uid)
+              )
+            )
+            || (
+              resource.data.claimedBy == request.auth.uid
+              && request.resource.data.claimedBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'tastingProgress',
+                'tastingComplete',
+                'tastingCompletedLetters',
+                'higherLowerProgress',
+                'higherLowerComplete',
+                'higherLowerCompletedLetters'
+              ])
+              && validScoreboardProgress()
+            )
           )
         );
       }

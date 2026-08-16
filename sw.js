@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v4-tv-scoreboard';
+const CACHE_NAME = 'blind-bourbon-derby-v5-retro-game-show';
 const APP_SHELL = [
   './',
   './index.html',
@@ -7,11 +7,14 @@ const APP_SHELL = [
   './js/claim-guard.js',
   './js/store.js',
   './js/scoring.js',
+  './js/scoreboard.js',
   './js/setup.js',
   './assets/derby-banner.webp',
   './assets/derby-logo.webp',
   './assets/derby-scorecard.webp',
   './assets/moose.webp',
+  './assets/moose-game-show-host.webp',
+  './assets/biggest-loser-poop.webp',
   './assets/favicon.png',
   './assets/icon-192.png',
   './assets/icon-512.png',
