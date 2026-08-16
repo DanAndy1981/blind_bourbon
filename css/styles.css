@@ -586,6 +586,68 @@ body.scoreboard-mode .scoreboard-shell { width: 100vw; height: 100vh; height: 10
 .tv-finish-card > small { grid-column: 1 / -1; overflow: hidden; font-family: var(--font-condensed); font-size: calc(.55 * var(--tv-u)); font-weight: 900; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .tv-finish-card.is-hidden { color: #dac896; background: #21162b; }
 
+/* Couch-distance legibility while retaining the 5-by-2 TV card grids. */
+body.scoreboard-mode .tv-player-heading {
+  grid-template-columns: calc(2.1 * var(--tv-u)) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: calc(.45 * var(--tv-u));
+  row-gap: calc(.08 * var(--tv-u));
+}
+body.scoreboard-mode .tv-player-heading > span { grid-row: 1 / 3; font-size: calc(1.15 * var(--tv-u)); }
+body.scoreboard-mode .tv-player-heading strong { overflow: visible; overflow-wrap: anywhere; font-size: calc(1.75 * var(--tv-u)); line-height: .96; text-overflow: clip; white-space: normal; }
+body.scoreboard-mode .tv-player-heading b { grid-column: 2; justify-self: start; font-size: calc(1.02 * var(--tv-u)); letter-spacing: .025em; line-height: 1; }
+body.scoreboard-mode .tv-glass-pips span { font-size: calc(1.05 * var(--tv-u)); }
+body.scoreboard-mode .tv-player-progress > small { overflow: visible; font-size: calc(1 * var(--tv-u)); letter-spacing: .025em; line-height: 1.05; text-align: center; text-overflow: clip; white-space: normal; }
+body.scoreboard-mode .tv-ready-counter span,
+body.scoreboard-mode .tv-tasting-rail p { font-size: calc(1.05 * var(--tv-u)); line-height: 1.12; }
+
+body.scoreboard-mode .tv-hl-copy > p { font-size: calc(1.08 * var(--tv-u)); letter-spacing: .02em; }
+body.scoreboard-mode .tv-sample-letter { font-size: calc(1.28 * var(--tv-u)); }
+body.scoreboard-mode .tv-hl-values span { font-size: calc(1.5 * var(--tv-u)); line-height: 1.05; }
+body.scoreboard-mode .tv-hl-values small { margin-bottom: calc(.08 * var(--tv-u)); font-size: calc(.9 * var(--tv-u)); font-weight: 900; }
+body.scoreboard-mode .tv-hl-arrows span { font-size: calc(.94 * var(--tv-u)); line-height: 1; }
+body.scoreboard-mode .tv-calls-locked { font-size: calc(.88 * var(--tv-u)); letter-spacing: .015em; }
+body.scoreboard-mode .tv-hl-host > p { font-size: calc(.95 * var(--tv-u)); line-height: 1.08; }
+body.scoreboard-mode .tv-hl-ready strong { font-size: calc(1.9 * var(--tv-u)); }
+body.scoreboard-mode .tv-hl-ready small { font-size: calc(.9 * var(--tv-u)); }
+body.scoreboard-mode .tv-hl-ready span { font-size: calc(.72 * var(--tv-u)); line-height: 1; }
+
+body.scoreboard-mode .tv-stage-title strong { font-size: calc(1.7 * var(--tv-u)); line-height: 1; }
+body.scoreboard-mode .tv-stage-title span { font-size: calc(.9 * var(--tv-u)); letter-spacing: .015em; }
+body.scoreboard-mode .tv-reveal-card.is-hidden p { font-size: calc(1 * var(--tv-u)); }
+body.scoreboard-mode .tv-place-chip { font-size: calc(1.1 * var(--tv-u)); }
+body.scoreboard-mode .tv-reveal-card > b { font-size: calc(1 * var(--tv-u)); font-weight: 900; }
+body.scoreboard-mode .tv-reveal-card h3 { font-size: calc(1.42 * var(--tv-u)); line-height: 1.03; }
+body.scoreboard-mode .tv-reveal-card > p { font-size: calc(.88 * var(--tv-u)); }
+body.scoreboard-mode .tv-reveal-card > div { font-size: calc(1 * var(--tv-u)); }
+body.scoreboard-mode .tv-vault-meter span { font-size: calc(.88 * var(--tv-u)); line-height: 1.02; }
+body.scoreboard-mode .tv-compact-award span { font-size: calc(.88 * var(--tv-u)); }
+body.scoreboard-mode .tv-compact-award strong { font-size: calc(1.2 * var(--tv-u)); line-height: 1.05; }
+body.scoreboard-mode .tv-compact-award small { font-size: calc(.78 * var(--tv-u)); }
+
+body.scoreboard-mode .tv-player-leaderboard > div { grid-template-columns: calc(1.9 * var(--tv-u)) minmax(0, 1fr) calc(3 * var(--tv-u)); }
+body.scoreboard-mode .tv-player-leaderboard span {
+  width: calc(1.8 * var(--tv-u));
+  height: calc(1.8 * var(--tv-u));
+  font-size: calc(.92 * var(--tv-u));
+}
+body.scoreboard-mode .tv-player-leaderboard strong { font-size: calc(1.12 * var(--tv-u)); font-weight: 900; letter-spacing: .012em; }
+body.scoreboard-mode .tv-player-leaderboard b { font-size: calc(1.18 * var(--tv-u)); }
+body.scoreboard-mode .tv-player-leaderboard.is-compact > div { padding-block: calc(.18 * var(--tv-u)); }
+body.scoreboard-mode .tv-player-leaderboard.is-compact strong { font-size: calc(1.02 * var(--tv-u)); }
+body.scoreboard-mode .tv-player-leaderboard.is-compact b { font-size: calc(1.08 * var(--tv-u)); }
+
+body.scoreboard-mode .tv-final-award > span,
+body.scoreboard-mode .tv-final-award.is-loser span { font-size: calc(1.28 * var(--tv-u)); }
+body.scoreboard-mode .tv-final-award h2 { font-size: calc(2.8 * var(--tv-u)); line-height: .98; }
+body.scoreboard-mode .tv-final-award > strong,
+body.scoreboard-mode .tv-final-award.is-loser div > strong { font-size: calc(1.85 * var(--tv-u)); }
+body.scoreboard-mode .tv-final-award p { font-size: calc(1 * var(--tv-u)); line-height: 1.08; }
+body.scoreboard-mode .tv-final-award.is-loser h2 { font-size: calc(2.15 * var(--tv-u)); }
+body.scoreboard-mode .tv-finish-card > strong { font-size: calc(1 * var(--tv-u)); }
+body.scoreboard-mode .tv-finish-card > span { font-size: calc(1.55 * var(--tv-u)); }
+body.scoreboard-mode .tv-finish-card > small { font-size: calc(.82 * var(--tv-u)); line-height: 1; }
+
 @keyframes tvBulbs { 0%,100% { border-color: #f4c45b; filter: brightness(.9); } 50% { border-color: #fff3ba; filter: brightness(1.45); } }
 @keyframes tvReadyPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.015); } }
 @keyframes tvHostBob { 0%,100% { transform: rotate(-.6deg) translateY(0); } 50% { transform: rotate(.7deg) translateY(calc(-.3 * var(--tv-u))); } }
