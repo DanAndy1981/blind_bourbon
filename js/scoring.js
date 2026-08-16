@@ -55,7 +55,6 @@ export function calculateGame(snapshot = {}) {
     .sort(byOrder);
   const detailsByLetter = normalizeDetails(snapshot.details);
   const responses = snapshot.responses || [];
-  const picks = snapshot.picks || [];
 
   const activePlayerIds = new Set(players.map((player) => player.id));
   const activeLetters = new Set(bottles.map((bottle) => bottle.letter));
@@ -64,7 +63,6 @@ export function calculateGame(snapshot = {}) {
     if (!activePlayerIds.has(response.playerId) || !activeLetters.has(response.bottleLetter)) continue;
     responseMap.set(`${response.playerId}::${response.bottleLetter}`, response);
   }
-  const pickMap = new Map(picks.filter((pick) => activePlayerIds.has(pick.playerId)).map((pick) => [pick.playerId, pick]));
 
   const bottleResults = bottles.map((bottle) => {
     const detail = detailsByLetter[bottle.letter] || {};
@@ -160,10 +158,12 @@ export function calculateGame(snapshot = {}) {
   const lastPlace = rankedBottles.find((bottle) => bottle.clubPlace === bottles.length) || rankedBottles.at(-1) || null;
 
   const playerResults = players.map((player) => {
-    const pick = pickMap.get(player.id) || {};
     let priceHL = 0;
     let proofHL = 0;
     let priceIsRight = 0;
+    const playerResponses = bottles.map((bottle) => responseMap.get(`${player.id}::${bottle.letter}`) || {});
+    const winnerLetter = bottles.find((bottle, index) => asNumber(playerResponses[index].finalRank) === 1)?.letter || null;
+    const lastLetter = bottles.find((bottle, index) => asNumber(playerResponses[index].finalRank) === bottles.length)?.letter || null;
 
     for (const bottle of bottleResults) {
       const response = responseMap.get(`${player.id}::${bottle.letter}`) || {};
@@ -174,12 +174,11 @@ export function calculateGame(snapshot = {}) {
       }
     }
 
-    const winnerPick = winner && pick.winnerPick === winner.letter ? 5 : 0;
-    const lastPick = lastPlace && pick.lastPick === lastPlace.letter ? 3 : 0;
+    const winnerPick = winner && winnerLetter === winner.letter ? 5 : 0;
+    const lastPick = lastPlace && lastLetter === lastPlace.letter ? 3 : 0;
     const bonus = asNumber(player.bonusPoints) ?? 0;
     const total = priceHL + proofHL + priceIsRight + winnerPick + lastPick + bonus;
 
-    const playerResponses = bottles.map((bottle) => responseMap.get(`${player.id}::${bottle.letter}`) || {});
     const ranks = playerResponses.map((response) => asNumber(response.finalRank)).filter((value) => value !== null);
     const uniqueRanks = new Set(ranks);
     const tastingFieldsComplete = playerResponses.every((response) =>
@@ -189,7 +188,6 @@ export function calculateGame(snapshot = {}) {
       Number.isInteger(asNumber(response.finalRank))
     );
     const rankSetValid = ranks.length === bottles.length && uniqueRanks.size === bottles.length && ranks.every((rank) => rank >= 1 && rank <= bottles.length);
-    const picksComplete = activeLetters.has(pick.winnerPick) && activeLetters.has(pick.lastPick);
     const higherLowerComplete = playerResponses.every((response) => HL_CHOICES.includes(response.priceHL) && HL_CHOICES.includes(response.proofHL));
 
     const tastingCompletedFields = playerResponses.reduce((count, response) => {
@@ -199,25 +197,25 @@ export function calculateGame(snapshot = {}) {
       if (asNumber(response.proofGuess) !== null) row += 1;
       if (Number.isInteger(asNumber(response.finalRank))) row += 1;
       return count + row;
-    }, 0) + (activeLetters.has(pick.winnerPick) ? 1 : 0) + (activeLetters.has(pick.lastPick) ? 1 : 0);
-    const tastingTotalFields = bottles.length * 4 + 2;
+    }, 0);
+    const tastingTotalFields = bottles.length * 4;
     const hlCompletedFields = playerResponses.reduce((count, response) => count + (HL_CHOICES.includes(response.priceHL) ? 1 : 0) + (HL_CHOICES.includes(response.proofHL) ? 1 : 0), 0);
     const hlTotalFields = bottles.length * 2;
 
     return {
       ...player,
-      pick,
       priceHL,
       proofHL,
       priceIsRight,
       winnerPick,
       lastPick,
+      winnerLetter,
+      lastLetter,
       bonus,
       total,
       rank: null,
-      tastingComplete: tastingFieldsComplete && rankSetValid && picksComplete,
+      tastingComplete: tastingFieldsComplete && rankSetValid,
       rankSetValid,
-      picksComplete,
       higherLowerComplete,
       tastingProgress: tastingTotalFields ? tastingCompletedFields / tastingTotalFields : 0,
       higherLowerProgress: hlTotalFields ? hlCompletedFields / hlTotalFields : 0,
@@ -247,7 +245,6 @@ export function calculateGame(snapshot = {}) {
     bottles,
     detailsByLetter,
     responseMap,
-    pickMap,
     bottleResults,
     rankedBottles,
     revealOrder: [...rankedBottles].sort((a, b) => (b.clubPlace ?? 0) - (a.clubPlace ?? 0)),

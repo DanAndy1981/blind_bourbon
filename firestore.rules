@@ -61,8 +61,7 @@ service cloud.firestore {
 
       match /bottleDetails/{letter} {
         allow read: if isHost(code)
-          || get(/databases/$(database)/documents/games/$(code)/bottles/$(letter)).data.revealed == true
-          || gameData(code).phase == 'final';
+          || get(/databases/$(database)/documents/games/$(code)/bottles/$(letter)).data.revealed == true;
         allow create: if isHostAfter(code);
         allow update, delete: if isHost(code);
       }

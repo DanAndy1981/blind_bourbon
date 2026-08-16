@@ -17,6 +17,6 @@ games/{gameCode}
     playerId, bottleLetter, buyChoice, priceGuess, proofGuess,
     finalRank, notes, priceHL, proofHL
 
-  picks/{playerId}
-    playerId, winnerPick, lastPick
 ```
+
+Each player's `finalRank` values also determine that player's winner and last-place picks: rank 1 is the winner pick, and the highest valid rank is the last-place pick. Older games may still contain legacy `picks` documents; the current app ignores them and reset cleanup removes them.

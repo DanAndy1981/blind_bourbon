@@ -9,9 +9,10 @@ import {
   formatNumber,
   phaseAtLeast,
 } from './scoring.js';
+import { BOTTLE_LETTERS, activeBottlesFromDraft, hasBottleSetupInfo } from './setup.js';
 
 const root = document.querySelector('#app');
-const LETTERS = 'ABCDEFGHIJ'.split('');
+const LETTERS = BOTTLE_LETTERS;
 const SAVE_DELAY = 550;
 
 const state = {
@@ -41,7 +42,6 @@ const esc = (value) => String(value ?? '')
   .replaceAll("'", '&#039;');
 
 const selected = (value, expected) => String(value ?? '') === String(expected ?? '') ? 'selected' : '';
-const checked = (value) => value ? 'checked' : '';
 const disabled = (value) => value ? 'disabled' : '';
 const pct = (value) => `${clampPercent(value)}%`;
 
@@ -234,6 +234,12 @@ function shell(content) {
     <div id="toast-tray" class="toast-tray" aria-live="polite"></div>`;
 }
 
+function scoreboardShell(content) {
+  return `
+    <div class="scoreboard-shell">${content}</div>
+    <div id="toast-tray" class="toast-tray" aria-live="polite"></div>`;
+}
+
 function render() {
   let content;
   if (state.loading) content = renderLoading();
@@ -242,7 +248,9 @@ function render() {
   else if (state.view === 'host') content = renderHost();
   else if (state.view === 'scoreboard') content = renderScoreboardPage();
   else content = renderPlayerRoute();
-  root.innerHTML = shell(content);
+  const isStandaloneScoreboard = state.view === 'scoreboard';
+  document.body.classList.toggle('scoreboard-mode', isStandaloneScoreboard);
+  root.innerHTML = isStandaloneScoreboard ? scoreboardShell(content) : shell(content);
   setSaveStatus(state.saveStatus);
 }
 
@@ -347,7 +355,7 @@ function renderCreateForm() {
           <div><span class="kicker">A through J</span><h3>Secret Bottle Vault</h3></div>
           <button type="button" class="btn btn-small btn-red" data-action="add-create-bottle" ${disabled(draft.bottles.length >= 10)}>+ Add Bottle</button>
         </div>
-        <p class="host-warning">These details stay hidden from players until the facilitator reveals each bottle.</p>
+        <p class="host-warning">Enter a bourbon name to put that sample in play. Blank rows are ignored; the active field is capped at A–J.</p>
         <div class="bottle-setup-list">
           ${draft.bottles.map((bottle, index) => renderBottleSetupRow(bottle, index, 'create')).join('')}
         </div>
@@ -434,7 +442,7 @@ function renderJoinGame() {
         <h2>How this works</h2>
         <ol>
           <li>Taste every mystery glass and record your buy vote, price, proof, and final rank.</li>
-          <li>Lock in the derby winner and last-place bottle.</li>
+          <li>Rank every sample once; rank 1 is your winner and the highest rank is your last-place pick.</li>
           <li>Play Higher / Lower against the group's average guesses.</li>
           <li>Watch the reveal and see who becomes the Bourbon Savant.</li>
         </ol>
@@ -446,10 +454,10 @@ function renderPhaseBanner(game) {
   const phase = PHASES.find((item) => item.id === game.phase) || PHASES[0];
   const copy = {
     setup: 'The facilitator is loading the field. No peeking in the bottle vault.',
-    tasting: 'Taste blind. Enter your buy vote, price, proof, rank, and derby picks.',
+    tasting: 'Taste blind. Enter your buy vote, price, proof, and one unique final rank per sample.',
     higherLower: 'Initial guesses are locked. Beat the group average in Higher / Lower.',
-    reveal: 'Pencils down. The bottles are coming out from last place to first.',
-    final: 'The derby is official. Bragging rights are now legally binding.',
+    reveal: 'Pencils down. Watch the Live Results screen as the facilitator reveals the field.',
+    final: 'The derby is official. Your blind card stays blind; the full show is on Live Results.',
   }[game.phase];
   return `<div class="phase-banner phase-${esc(game.phase)}"><strong>${esc(phase.label)}</strong><span>${esc(copy)}</span></div>`;
 }
@@ -462,13 +470,10 @@ function renderPlayerCard(player) {
   const letter = state.currentLetter || bottles[0]?.letter;
   const bottle = calc.bottleResults.find((item) => item.letter === letter) || calc.bottleResults[0];
   const response = snapshot.responses.find((item) => item.playerId === player.id && item.bottleLetter === bottle?.letter) || {};
-  const pick = snapshot.picks.find((item) => item.playerId === player.id) || {};
   const playerResult = calc.playerResults.find((item) => item.id === player.id);
   const tastingEditable = game.phase === 'tasting';
   const hlEditable = game.phase === 'higherLower';
   const notesEditable = game.phase === 'tasting' || game.phase === 'higherLower';
-  const revealed = Boolean(bottle?.revealed || game.phase === 'final');
-  const detail = snapshot.details?.[bottle?.letter] || bottle?.detail || {};
   const avg = game.publicAverages?.[bottle?.letter] || {};
 
   if (!bottle) return `${renderGameMasthead(game, player.name)}<section class="paper-panel empty-state ink-frame"><h2>No bottles are active yet.</h2></section>`;
@@ -503,12 +508,12 @@ function renderPlayerCard(player) {
         <img src="./assets/moose.webp" alt="Moose waiting for the derby">
         <div><h2>The bottle vault is still open.</h2><p>Your card will unlock when the facilitator starts the blind tasting.</p></div>
       </section>` : `
-      ${renderPickPanel(calc, player, pick, tastingEditable)}
+      ${renderRankSummary(playerResult, calc.bottles.length)}
       <nav class="sample-tabs" aria-label="Mystery samples">
         ${bottles.map((item) => {
           const itemResponse = snapshot.responses.find((entry) => entry.playerId === player.id && entry.bottleLetter === item.letter) || {};
           const complete = BUY_CHOICES.includes(itemResponse.buyChoice) && itemResponse.priceGuess !== null && itemResponse.priceGuess !== '' && itemResponse.proofGuess !== null && itemResponse.proofGuess !== '' && itemResponse.finalRank;
-          return `<button class="sample-tab ${item.letter === bottle.letter ? 'active' : ''} ${complete ? 'complete' : ''} ${item.revealed ? 'revealed' : ''}" data-action="set-sample" data-letter="${item.letter}"><span>${item.letter}</span></button>`;
+          return `<button class="sample-tab ${item.letter === bottle.letter ? 'active' : ''} ${complete ? 'complete' : ''}" data-action="set-sample" data-letter="${item.letter}"><span>${item.letter}</span></button>`;
         }).join('')}
       </nav>
 
@@ -517,13 +522,10 @@ function renderPlayerCard(player) {
           <div class="sample-letter-big">${esc(bottle.letter)}</div>
           <div>
             <span class="kicker">Mystery Glass</span>
-            <h2>${revealed && detail.name ? esc(detail.name) : `Sample ${esc(bottle.letter)}`}</h2>
-            <p>${revealed ? esc(detail.distillery || 'Distillery not entered') : 'No labels. No bottle shapes. No funny business.'}</p>
+            <h2>Sample ${esc(bottle.letter)}</h2>
+            <p>No labels. No bottle shapes. No funny business.</p>
           </div>
-          ${revealed ? `<div class="reveal-stamp">REVEALED</div>` : ''}
         </div>
-
-        ${revealed ? renderBottleReveal(detail, bottle, response) : ''}
 
         <div class="player-fields ${!tastingEditable && !hlEditable && !notesEditable ? 'locked' : ''}">
           <fieldset ${disabled(!tastingEditable)}>
@@ -534,8 +536,8 @@ function renderPlayerCard(player) {
           </fieldset>
 
           <div class="guess-grid">
-            <label>Price Guess <span>$</span>
-              <input data-response-field="priceGuess" data-letter="${bottle.letter}" type="number" min="0" step="1" inputmode="decimal" value="${esc(response.priceGuess ?? '')}" placeholder="45" ${disabled(!tastingEditable)}>
+            <label>Price Guess
+              <span class="input-prefix"><span aria-hidden="true">$</span><input aria-label="Price guess in dollars" data-response-field="priceGuess" data-letter="${bottle.letter}" type="number" min="0" step="1" inputmode="decimal" value="${esc(response.priceGuess ?? '')}" placeholder="45" ${disabled(!tastingEditable)}></span>
             </label>
             <label>Proof Guess
               <input data-response-field="proofGuess" data-letter="${bottle.letter}" type="number" min="0" step="1" inputmode="decimal" value="${esc(response.proofGuess ?? '')}" placeholder="100" ${disabled(!tastingEditable)}>
@@ -556,7 +558,7 @@ function renderPlayerCard(player) {
             <textarea data-response-field="notes" data-letter="${bottle.letter}" rows="3" placeholder="Nose, palate, finish, wild accusations…" ${disabled(!notesEditable)}>${esc(response.notes || '')}</textarea>
           </label>
 
-          ${phaseAtLeast(game.phase, 'higherLower') ? renderHigherLowerFields(bottle, response, avg, hlEditable, revealed) : ''}
+          ${phaseAtLeast(game.phase, 'higherLower') ? renderHigherLowerFields(bottle, response, avg, hlEditable) : ''}
         </div>
 
         <div class="sample-nav-buttons">
@@ -570,30 +572,16 @@ function renderPlayerCard(player) {
   `;
 }
 
-function renderPickPanel(calc, player, pick, editable) {
-  const letters = calc.bottles.map((bottle) => bottle.letter);
-  const playerResult = calc.playerResults.find((item) => item.id === player.id);
+function renderRankSummary(playerResult, bottleCount) {
   return `
-    <section class="picks-panel paper-panel ink-frame">
-      <div class="pick-icon">🏆</div>
-      <label>Pick the Winner
-        <select data-pick-field="winnerPick" ${disabled(!editable)}>
-          <option value="">Choose…</option>
-          ${letters.map((letter) => `<option value="${letter}" ${selected(pick.winnerPick, letter)}>Sample ${letter}</option>`).join('')}
-        </select>
-      </label>
-      <div class="pick-icon barrel-icon">▣</div>
-      <label>Pick Last Place
-        <select data-pick-field="lastPick" ${disabled(!editable)}>
-          <option value="">Choose…</option>
-          ${letters.map((letter) => `<option value="${letter}" ${selected(pick.lastPick, letter)}>Sample ${letter}</option>`).join('')}
-        </select>
-      </label>
-      ${playerResult && !playerResult.rankSetValid && playerResult.tastingProgress > 0 ? `<div class="rank-warning">Use each rank exactly once, from 1 through ${letters.length}.</div>` : ''}
+    <section class="rank-summary paper-panel ink-frame">
+      <div class="rank-summary-icon">1</div>
+      <div><strong>One ranking does it all</strong><span>Rank 1 is your winner. Rank ${bottleCount} is your last-place pick.</span></div>
+      ${playerResult && !playerResult.rankSetValid && playerResult.tastingProgress > 0 ? `<div class="rank-warning">Use each rank exactly once, from 1 through ${bottleCount}.</div>` : ''}
     </section>`;
 }
 
-function renderHigherLowerFields(bottle, response, avg, editable, revealed) {
+function renderHigherLowerFields(bottle, response, avg, editable) {
   return `
     <section class="higher-lower-card">
       <div class="ribbon-title small"><span>Higher / Lower</span></div>
@@ -604,7 +592,6 @@ function renderHigherLowerFields(bottle, response, avg, editable, revealed) {
           <div class="choice-grid two">
             ${HL_CHOICES.map((choice) => `<button type="button" class="choice-button ${response.priceHL === choice ? 'active' : ''}" data-action="select-hl" data-field="priceHL" data-letter="${bottle.letter}" data-value="${choice}" ${disabled(!editable)}>${choice}</button>`).join('')}
           </div>
-          ${revealed && bottle.priceAnswer ? `<span class="answer-reveal">Answer: ${esc(bottle.priceAnswer)}</span>` : ''}
         </div>
         <div class="hl-question">
           <span class="hl-label">Club Proof Guess</span>
@@ -612,21 +599,9 @@ function renderHigherLowerFields(bottle, response, avg, editable, revealed) {
           <div class="choice-grid two">
             ${HL_CHOICES.map((choice) => `<button type="button" class="choice-button ${response.proofHL === choice ? 'active' : ''}" data-action="select-hl" data-field="proofHL" data-letter="${bottle.letter}" data-value="${choice}" ${disabled(!editable)}>${choice}</button>`).join('')}
           </div>
-          ${revealed && bottle.proofAnswer ? `<span class="answer-reveal">Answer: ${esc(bottle.proofAnswer)}</span>` : ''}
         </div>
       </div>
     </section>`;
-}
-
-function renderBottleReveal(detail, bottle, response) {
-  return `
-    <div class="bottle-reveal-strip">
-      <div><span>Retail</span><strong>${formatMoney(detail.retailPrice, 0)}</strong></div>
-      <div><span>Proof</span><strong>${detail.proof !== null && detail.proof !== undefined ? formatNumber(detail.proof, 1) : '—'}</strong></div>
-      <div><span>Club Finish</span><strong>${bottle.clubPlace ? `#${bottle.clubPlace}` : '—'}</strong></div>
-      <div><span>Your Price</span><strong>${formatMoney(response.priceGuess, 0)}</strong></div>
-      ${detail.notes ? `<p>${esc(detail.notes)}</p>` : ''}
-    </div>`;
 }
 
 function renderPersonalScore(player) {
@@ -639,8 +614,8 @@ function renderPersonalScore(player) {
         <span>Price H/L <strong>${player.priceHL}</strong></span>
         <span>Proof H/L <strong>${player.proofHL}</strong></span>
         <span>Price Is Right <strong>${player.priceIsRight}</strong></span>
-        <span>Winner <strong>${player.winnerPick}</strong></span>
-        <span>Last <strong>${player.lastPick}</strong></span>
+        <span>Ranked Winner <strong>${player.winnerPick}</strong></span>
+        <span>Ranked Last <strong>${player.lastPick}</strong></span>
         <span>Bonus <strong>${player.bonus}</strong></span>
       </div>
       <button class="btn btn-gold" data-action="open-scoreboard">Open Full Scoreboard</button>
@@ -688,7 +663,7 @@ function makeHostDraft(snapshot) {
       const detail = details[letter] || {};
       return {
         letter,
-        active: Boolean(bottle),
+        active: Boolean(bottle && hasBottleSetupInfo(detail)),
         order: bottle?.order ?? index,
         name: detail.name || '',
         distillery: detail.distillery || '',
@@ -744,7 +719,7 @@ function renderHostControl() {
     ${renderBonusPanel(calc)}
 
     <section class="danger-zone paper-panel ink-frame">
-      <div><h3>Reset tasting answers</h3><p>Clears every scorecard, pick, bonus point, and reveal. Player names and bottles stay in place.</p></div>
+      <div><h3>Reset tasting answers</h3><p>Clears every scorecard, bonus point, and reveal. Player names and bottles stay in place.</p></div>
       <button class="btn btn-danger" data-action="reset-answers">Reset Answers</button>
     </section>`;
 }
@@ -828,11 +803,12 @@ function renderHostSetup() {
         </div>
 
         <div class="setup-section">
-          <div class="section-heading"><div><span class="kicker">Check the samples in play</span><h3>Bottle Vault</h3></div><span>Details remain host-only</span></div>
+          <div class="section-heading"><div><span class="kicker">A–J · blank names stay out</span><h3>Bottle Vault</h3></div><span>Details remain host-only</span></div>
+          <p class="host-warning">A sample becomes active when its Bourbon field has a name. Clear the name to remove it from player cards.</p>
           <div class="host-bottle-list">
             ${draft.bottles.map((bottle, index) => `
-              <div class="host-bottle-row ${bottle.active ? 'active' : ''}">
-                <label class="active-toggle"><input type="checkbox" data-host-bottle-active="${index}" ${checked(bottle.active)}><span>${bottle.letter}</span></label>
+              <div class="host-bottle-row ${hasBottleSetupInfo(bottle) ? 'active' : ''}">
+                <div class="active-toggle" aria-label="Sample ${bottle.letter}"><span>${bottle.letter}</span></div>
                 <label>Bourbon<input data-host-bottle="${index}" data-field="name" value="${esc(bottle.name)}"></label>
                 <label>Distillery<input data-host-bottle="${index}" data-field="distillery" value="${esc(bottle.distillery)}"></label>
                 <label>Retail $<input data-host-bottle="${index}" data-field="retailPrice" type="number" min="0" step="0.01" value="${esc(bottle.retailPrice)}"></label>
@@ -852,101 +828,99 @@ function renderHostSetup() {
 
 function renderScoreboardPage() {
   const game = state.snapshot.game;
+  const joinUrl = buildUrl(state.code).toString();
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&format=svg&qzone=1&data=${encodeURIComponent(joinUrl)}`;
   return `
-    ${renderGameMasthead(game, 'Live Results')}
-    <section class="scoreboard-actions paper-panel ink-frame">
-      <button class="btn btn-navy" data-action="open-player">Player Entrance</button>
-      ${isHost() ? `<button class="btn btn-red" data-action="open-host">Facilitator Booth</button>` : ''}
-      <button class="btn btn-ghost" data-action="refresh">Refresh</button>
-    </section>
+    <header class="tv-scoreboard-header ink-frame">
+      <img class="tv-brand-mark" src="./assets/derby-logo.webp" alt="Blind Bourbon Derby">
+      <div class="tv-title-block">
+        <span class="kicker">Live Results · ${esc(PHASES.find((phase) => phase.id === game.phase)?.label || game.phase)}</span>
+        <h1>${esc(game.title || 'Blind Bourbon Derby')}</h1>
+        <p>${esc(game.theme || 'Blind tasting')} ${game.eventDate ? `· ${esc(formatDate(game.eventDate))}` : ''}</p>
+      </div>
+      <aside class="tv-join-card">
+        <img src="${esc(qrUrl)}" alt="QR code to join game ${esc(game.code || state.code)}">
+        <div><span>Scan to join</span><strong>${esc(game.code || state.code)}</strong><small>${esc(joinUrl)}</small></div>
+      </aside>
+    </header>
     ${renderScoreboardBody(false)}`;
 }
 
 function revealedName(bottle, details) {
   const detail = details[bottle.letter] || bottle.detail || {};
-  return bottle.revealed || state.snapshot.game.phase === 'final' || isHost() ? (detail.name || `Sample ${bottle.letter}`) : `Mystery Sample ${bottle.letter}`;
+  return bottle.revealed ? (detail.name || `Sample ${bottle.letter}`) : 'Awaiting reveal';
 }
 
 function renderScoreboardBody(hostEmbed = false) {
   const snapshot = state.snapshot;
   const calc = calculateGame(snapshot);
   const game = snapshot.game;
-  const allDetailsVisible = isHost() || game.phase === 'final' || calc.bottles.every((bottle) => bottle.revealed);
+  const scoreboardOpen = phaseAtLeast(game.phase, 'reveal');
   const champion = calc.winner;
   const savant = calc.savant;
-  const valueChampion = allDetailsVisible ? calc.valueChampion : null;
-  const upset = allDetailsVisible ? calc.biggestUpset : null;
-
-  if (!phaseAtLeast(game.phase, 'reveal') && !hostEmbed) {
-    return `
-      <section class="paper-panel waiting-panel ink-frame">
-        <img src="./assets/moose.webp" alt="Moose waiting for the reveal">
-        <div><h2>The scoreboard is under wraps.</h2><p>It opens when the facilitator starts the reveal.</p></div>
-      </section>`;
-  }
+  const valueChampion = calc.valueChampion;
+  const upset = calc.biggestUpset;
+  const columnCount = Math.min(5, Math.max(1, calc.rankedBottles.length));
 
   return `
-    <section class="champion-grid ${game.phase === 'final' ? 'finale' : ''}">
-      ${renderChampionCard('Derby Champion', champion ? revealedName(champion, calc.detailsByLetter) : 'Waiting for ranks', champion ? `Sample ${champion.letter} · Club place #1` : 'The field is still forming', 'trophy')}
-      ${renderChampionCard('Value Champion', valueChampion ? revealedName(valueChampion, calc.detailsByLetter) : 'Hidden until the reveal', valueChampion ? `Value index ${formatNumber(valueChampion.valueIndex, 2)}` : 'Best finish for the money', 'dollar')}
-      ${renderChampionCard('Bourbon Savant', savant ? savant.name : 'No points yet', savant ? `${savant.total} points · Rank #${savant.rank}` : 'Game-show leaderboard winner', 'brain')}
-      ${renderChampionCard('Biggest Upset', upset ? revealedName(upset, calc.detailsByLetter) : 'Hidden until the reveal', upset ? `${upset.upsetGap} places from price rank` : 'Price versus blind finish', 'upset')}
-    </section>
+    <div class="${hostEmbed ? 'scoreboard-host-body' : 'tv-scoreboard-body'} ${scoreboardOpen ? 'is-open' : 'is-waiting'}">
+      <section class="tv-awards paper-panel ink-frame">
+        <div class="scoreboard-section-title"><span>Winner Cards</span><small>Appear automatically as the bottles are revealed</small></div>
+        <div class="champion-grid ${game.phase === 'final' ? 'finale' : ''}">
+          ${renderChampionCard('Derby Champion', champion?.revealed ? revealedName(champion, calc.detailsByLetter) : 'Awaiting reveal', champion?.revealed ? `Sample ${champion.letter} · Club place #1` : 'The winning bottle is still under wraps', 'trophy', champion?.revealed)}
+          ${renderChampionCard('Value Champion', valueChampion?.revealed ? revealedName(valueChampion, calc.detailsByLetter) : 'Awaiting reveal', valueChampion?.revealed ? `Value index ${formatNumber(valueChampion.valueIndex, 2)}` : 'Best finish for the money', 'dollar', valueChampion?.revealed)}
+          ${renderChampionCard('Bourbon Savant', scoreboardOpen && savant ? savant.name : 'Leaderboard forming', scoreboardOpen && savant ? `${savant.total} points · Rank #${savant.rank}` : 'Game-show leaderboard winner', 'brain', scoreboardOpen && Boolean(savant))}
+          ${renderChampionCard('Biggest Upset', upset?.revealed ? revealedName(upset, calc.detailsByLetter) : 'Awaiting reveal', upset?.revealed ? `${upset.upsetGap} places from price rank` : 'Price versus blind finish', 'upset', upset?.revealed)}
+        </div>
+      </section>
 
-    <section class="paper-panel ink-frame standings-panel">
-      <div class="ribbon-title red"><span>The Derby Finish</span></div>
-      ${!calc.rankedBottles.length ? `<p class="status-callout warning">No valid final ranks have been submitted yet.</p>` : `
-        <div class="standings-list">
-          ${calc.rankedBottles.map((bottle) => {
-            const detail = calc.detailsByLetter[bottle.letter] || {};
-            const detailsVisible = Boolean(bottle.revealed || game.phase === 'final' || isHost());
-            const totalVotes = bottle.hellYes + bottle.maybe + bottle.nope || 1;
-            return `<article class="standing-card place-${bottle.clubPlace} ${detailsVisible ? 'revealed' : ''}">
-              <div class="place-medallion">${bottle.clubPlace}</div>
-              <div class="sample-letter-standing">${bottle.letter}</div>
-              <div class="standing-main">
-                <h3>${detailsVisible ? esc(detail.name || `Sample ${bottle.letter}`) : `Mystery Sample ${bottle.letter}`}</h3>
-                <p>${detailsVisible ? esc(detail.distillery || 'Distillery not entered') : 'Waiting for the facilitator to reveal the bottle'}</p>
-                <div class="vote-bar" title="Hell Yes / Maybe / Nope">
-                  <span class="yes" style="width:${(bottle.hellYes / totalVotes) * 100}%"></span>
-                  <span class="maybe" style="width:${(bottle.maybe / totalVotes) * 100}%"></span>
-                  <span class="nope" style="width:${(bottle.nope / totalVotes) * 100}%"></span>
-                </div>
-                <div class="vote-labels"><span>Hell Yes ${bottle.hellYes}</span><span>Maybe ${bottle.maybe}</span><span>Nope ${bottle.nope}</span></div>
-              </div>
-              <div class="standing-stats">
-                <div><span>Avg Finish</span><strong>${formatNumber(bottle.avgFinish, 2)}</strong></div>
-                <div><span>Avg $ Guess</span><strong>${formatMoney(bottle.avgPriceGuess, 0)}</strong></div>
-                <div><span>Avg Proof</span><strong>${formatNumber(bottle.avgProofGuess, 1)}</strong></div>
-                ${detailsVisible ? `<div><span>Actual</span><strong>${formatMoney(detail.retailPrice, 0)} / ${detail.proof ?? '—'}°</strong></div>` : ''}
-              </div>
-            </article>`;
-          }).join('')}
-        </div>`}
-    </section>
+      <section class="tv-standings paper-panel ink-frame">
+        <div class="scoreboard-section-title"><span>The Derby Finish</span><small>Last place to first place</small></div>
+        ${!scoreboardOpen || !calc.rankedBottles.length ? `<div class="tv-waiting"><img src="./assets/moose.webp" alt="Moose waiting for the reveal"><p>${scoreboardOpen ? 'Waiting for valid final rankings.' : 'The finish appears when the facilitator starts the reveal.'}</p></div>` : `
+          <div class="standings-list" style="--standing-columns:${columnCount}">
+            ${calc.rankedBottles.map((bottle) => renderStandingCard(bottle, calc.detailsByLetter)).join('')}
+          </div>`}
+      </section>
 
-    <section class="paper-panel ink-frame leaderboard-panel">
-      <div class="ribbon-title"><span>Bourbon Savant Leaderboard</span></div>
-      <div class="leaderboard-table-wrap">
-        <table class="leaderboard-table">
-          <thead><tr><th>Rank</th><th>Participant</th><th>Price H/L</th><th>Proof H/L</th><th>Price Is Right</th><th>Winner</th><th>Last</th><th>Bonus</th><th>Total</th></tr></thead>
-          <tbody>
-            ${calc.playerResults.map((player) => `<tr class="${player.rank === 1 ? 'leader' : ''}">
-              <td><span class="rank-circle">${player.rank}</span></td>
-              <td><strong>${esc(player.name)}</strong></td>
-              <td>${player.priceHL}</td><td>${player.proofHL}</td><td>${player.priceIsRight}</td><td>${player.winnerPick}</td><td>${player.lastPick}</td><td>${player.bonus}</td><td class="total-cell">${player.total}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      <p class="scoring-note">Price H/L: 1 point per active bottle · Proof H/L: 1 point · Price Is Right: 3 points, or 2 if everyone goes over · Winner: 5 · Last: 3 · Trivia: facilitator's call.</p>
-    </section>`;
+      <section class="tv-leaderboard paper-panel ink-frame">
+        <div class="scoreboard-section-title"><span>Bourbon Savant Leaderboard</span><small>Updates every few seconds</small></div>
+        ${!scoreboardOpen ? `<div class="leaderboard-locked"><strong>Scores are under wraps</strong><span>Player standings unlock with The Reveal.</span></div>` : `
+          <div class="leaderboard-list">
+            ${calc.playerResults.map((player) => `<div class="leaderboard-row ${player.rank === 1 ? 'leader' : ''}">
+              <span class="rank-circle">${player.rank}</span>
+              <strong>${esc(player.name)}</strong>
+              <span><small>H / L</small>${player.priceHL + player.proofHL}</span>
+              <span><small>Rank pts</small>${player.winnerPick + player.lastPick}</span>
+              <span class="total-cell"><small>Total</small>${player.total}</span>
+            </div>`).join('')}
+          </div>`}
+      </section>
+    </div>`;
 }
 
-function renderChampionCard(title, name, detail, icon) {
+function renderStandingCard(bottle, detailsByLetter) {
+  if (!bottle.revealed) {
+    return `<article class="standing-card is-hidden"><div class="hidden-reveal-mark">?</div><strong>Awaiting reveal</strong></article>`;
+  }
+  const detail = detailsByLetter[bottle.letter] || bottle.detail || {};
+  const totalVotes = bottle.hellYes + bottle.maybe + bottle.nope || 1;
+  return `<article class="standing-card place-${bottle.clubPlace} revealed">
+    <div class="place-medallion">${bottle.clubPlace}</div>
+    <div class="sample-letter-standing">${bottle.letter}</div>
+    <div class="standing-main">
+      <h3>${esc(detail.name || `Sample ${bottle.letter}`)}</h3>
+      <p>${esc(detail.distillery || 'Distillery not entered')}</p>
+      <div class="vote-bar" title="Hell Yes / Maybe / Nope"><span class="yes" style="width:${(bottle.hellYes / totalVotes) * 100}%"></span><span class="maybe" style="width:${(bottle.maybe / totalVotes) * 100}%"></span><span class="nope" style="width:${(bottle.nope / totalVotes) * 100}%"></span></div>
+      <div class="vote-labels"><span>Yes ${bottle.hellYes}</span><span>Maybe ${bottle.maybe}</span><span>Nope ${bottle.nope}</span></div>
+    </div>
+    <div class="standing-actual"><span>${formatMoney(detail.retailPrice, 0)}</span><strong>${detail.proof ?? '—'} proof</strong></div>
+  </article>`;
+}
+
+function renderChampionCard(title, name, detail, icon, visible = false) {
   const icons = { trophy: '★', dollar: '$', brain: '♛', upset: '!' };
   return `
-    <article class="champion-card ink-frame ${icon}">
+    <article class="champion-card ink-frame ${icon} ${visible ? 'is-revealed' : 'is-hidden'}">
       <div class="champion-icon">${icons[icon]}</div>
       <span>${esc(title)}</span>
       <h2>${esc(name)}</h2>
@@ -980,10 +954,6 @@ function syncHostDraftFromForm() {
   form.querySelectorAll('[data-host-player]').forEach((input) => {
     const index = Number(input.dataset.hostPlayer);
     if (state.hostDraft.players[index]) state.hostDraft.players[index].name = input.value;
-  });
-  form.querySelectorAll('[data-host-bottle-active]').forEach((input) => {
-    const index = Number(input.dataset.hostBottleActive);
-    if (state.hostDraft.bottles[index]) state.hostDraft.bottles[index].active = input.checked;
   });
   form.querySelectorAll('[data-host-bottle]').forEach((input) => {
     const index = Number(input.dataset.hostBottle);
@@ -1020,26 +990,6 @@ function updateResponse(letter, field, value, { immediate = false, rerender = fa
   if (immediate) save();
   else state.saveTimers.set(key, setTimeout(save, SAVE_DELAY));
   if (rerender) render();
-}
-
-function updatePick(field, value) {
-  let pick = state.snapshot.picks.find((item) => item.playerId === state.playerId);
-  if (!pick) {
-    pick = { playerId: state.playerId };
-    state.snapshot.picks.push(pick);
-  }
-  pick[field] = value;
-  setSaveStatus('saving');
-  clearTimeout(state.saveTimers.get(`pick::${field}`));
-  state.saveTimers.set(`pick::${field}`, setTimeout(async () => {
-    try {
-      await state.store.savePicks(state.code, state.playerId, { [field]: value });
-      setSaveStatus('saved');
-    } catch (error) {
-      setSaveStatus('error');
-      toast(error.message || 'Could not save that pick.', 'error');
-    }
-  }, 250));
 }
 
 root.addEventListener('click', async (event) => {
@@ -1175,9 +1125,6 @@ root.addEventListener('click', async (event) => {
     if (nextPhase === 'tasting' || nextPhase === 'setup') patch.publicAverages = {};
     await safeAction(async () => {
       await state.store.updateGame(state.code, patch);
-      if (nextPhase === 'final') {
-        await Promise.all(state.snapshot.bottles.filter((bottle) => !bottle.revealed).map((bottle) => state.store.revealBottle(state.code, bottle.letter, true)));
-      }
       await loadSnapshot();
       toast(`Round changed to ${PHASES.find((phase) => phase.id === nextPhase)?.label}.`);
     });
@@ -1210,7 +1157,7 @@ root.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'reset-answers') {
-    if (!confirm('Clear every player answer, pick, bonus point, and reveal? This cannot be undone.')) return;
+    if (!confirm('Clear every player answer, bonus point, and reveal? This cannot be undone.')) return;
     await safeAction(async () => {
       await state.store.resetAnswers(state.code);
       await loadSnapshot();
@@ -1248,7 +1195,7 @@ root.addEventListener('submit', async (event) => {
   if (type === 'create-game') {
     syncCreateDraftFromForm();
     const players = state.createDraft.players.map((player) => ({ ...player, name: player.name.trim() })).filter((player) => player.name);
-    const bottles = state.createDraft.bottles.map((bottle) => ({ ...bottle }));
+    const bottles = activeBottlesFromDraft(state.createDraft.bottles);
     const duplicatePlayers = players.some((player, index) => players.findIndex((other) => other.name.toLowerCase() === player.name.toLowerCase()) !== index);
     if (players.length < 2) { toast('Add at least two player names.', 'error'); return; }
     if (bottles.length < 2) { toast('Add at least two bottles.', 'error'); return; }
@@ -1264,7 +1211,7 @@ root.addEventListener('submit', async (event) => {
   if (type === 'host-setup') {
     syncHostDraftFromForm();
     const players = state.hostDraft.players.map((player) => ({ ...player, name: player.name.trim() })).filter((player) => player.name);
-    const bottles = state.hostDraft.bottles.filter((bottle) => bottle.active).map((bottle, index) => ({ ...bottle, order: index }));
+    const bottles = activeBottlesFromDraft(state.hostDraft.bottles);
     if (players.length < 2 || bottles.length < 2) { toast('Keep at least two players and two active bottles.', 'error'); return; }
     const duplicatePlayers = players.some((player, index) => players.findIndex((other) => other.name.toLowerCase() === player.name.toLowerCase()) !== index);
     if (duplicatePlayers) { toast('Player names need to be unique.', 'error'); return; }
@@ -1295,11 +1242,6 @@ root.addEventListener('change', async (event) => {
     let value = responseInput.value;
     if (responseInput.type === 'number' || field === 'finalRank') value = value === '' ? null : Number(value);
     updateResponse(responseInput.dataset.letter, field, value, { immediate: true, rerender: field === 'finalRank' });
-    return;
-  }
-  const pickInput = event.target.closest('[data-pick-field]');
-  if (pickInput) {
-    updatePick(pickInput.dataset.pickField, pickInput.value || null);
     return;
   }
   const bonusInput = event.target.closest('[data-bonus-player]');
