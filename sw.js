@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v18-strengthening-pass';
+const CACHE_NAME = 'blind-bourbon-derby-v19-strengthening-pass';
 const APP_SHELL = [
   './',
   './index.html',
