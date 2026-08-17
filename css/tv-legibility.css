@@ -1,0 +1,372 @@
+/*
+  Big-screen legibility pass.
+  The original TV board used a single viewport unit for both decoration and
+  type. On a 1080p television several labels landed near 10–12px. These
+  overrides keep the retro style while giving data, sample letters and scores
+  a real minimum size and a stronger contrast floor.
+*/
+
+body.scoreboard-mode .tv-gameboard {
+  --tv-copy: clamp(16px, 1.02vw, 22px);
+  --tv-label: clamp(17px, 1.1vw, 24px);
+  --tv-data: clamp(20px, 1.28vw, 28px);
+  --tv-title: clamp(28px, 2vw, 44px);
+  --tv-number: clamp(25px, 1.7vw, 38px);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
+}
+
+body.scoreboard-mode .tv-gameboard small,
+body.scoreboard-mode .tv-gameboard p,
+body.scoreboard-mode .tv-gameboard span,
+body.scoreboard-mode .tv-gameboard b,
+body.scoreboard-mode .tv-gameboard strong {
+  text-wrap: pretty;
+}
+
+/* Marquee and join bug */
+body.scoreboard-mode .tv-phase-marquee > span {
+  font-size: var(--tv-label);
+  line-height: 1.05;
+}
+body.scoreboard-mode .tv-phase-marquee strong {
+  font-size: var(--tv-title);
+  line-height: 1.02;
+  text-shadow: 3px 4px 0 #3e0e0b;
+}
+body.scoreboard-mode .tv-phase-marquee small {
+  font-size: var(--tv-copy);
+  color: #fff0c6;
+}
+body.scoreboard-mode .tv-join-bug span { font-size: var(--tv-label); }
+body.scoreboard-mode .tv-join-bug strong {
+  font-size: clamp(32px, 2.25vw, 50px);
+  letter-spacing: .1em;
+}
+body.scoreboard-mode .tv-join-bug small {
+  font-size: clamp(14px, .86vw, 18px);
+  color: #49392d;
+}
+
+/* Lobby */
+body.scoreboard-mode .tv-neon-kicker { font-size: var(--tv-label); }
+body.scoreboard-mode .tv-lobby-copy h1 { font-size: clamp(46px, 4.3vw, 82px); }
+body.scoreboard-mode .tv-lobby-copy > p { font-size: var(--tv-copy); line-height: 1.35; }
+body.scoreboard-mode .tv-lobby-count span,
+body.scoreboard-mode .tv-contestant-strip strong { font-size: var(--tv-label); }
+body.scoreboard-mode .tv-drunk-rule > b { font-size: var(--tv-copy); }
+body.scoreboard-mode .tv-drunk-rule strong { font-size: var(--tv-label); line-height: 1.05; }
+body.scoreboard-mode .tv-drunk-rule span {
+  font-size: var(--tv-copy);
+  line-height: 1.18;
+  color: #fff0c5;
+}
+
+/* Tasting tote board */
+body.scoreboard-mode .tv-player-heading > span,
+body.scoreboard-mode .tv-glass-pips span {
+  font-size: var(--tv-data);
+  font-family: var(--font-condensed);
+  font-weight: 900;
+}
+body.scoreboard-mode .tv-player-heading strong {
+  font-family: var(--font-condensed);
+  font-size: clamp(24px, 1.65vw, 36px);
+  font-weight: 900;
+  letter-spacing: .01em;
+}
+body.scoreboard-mode .tv-player-heading b { font-size: var(--tv-label); }
+body.scoreboard-mode .tv-player-notes li {
+  font-size: var(--tv-copy);
+  line-height: 1.18;
+  background: rgba(255, 245, 215, .15);
+}
+body.scoreboard-mode .tv-player-notes b { font-size: var(--tv-label); }
+body.scoreboard-mode .tv-player-notes-empty { font-size: var(--tv-copy); color: #f2dfb9; }
+body.scoreboard-mode .tv-tasting-progress-value {
+  font-family: var(--font-condensed);
+  font-size: clamp(38px, 3.05vw, 62px);
+  font-weight: 900;
+  letter-spacing: 0;
+}
+body.scoreboard-mode .tv-player-progress > small,
+body.scoreboard-mode .tv-ready-counter span,
+body.scoreboard-mode .tv-tasting-rail p { font-size: var(--tv-copy); }
+body.scoreboard-mode .tv-ready-counter strong { font-size: clamp(48px, 3.2vw, 68px); }
+
+/* Ten players create two short rows. Remove the least important copy rather
+   than shrinking every useful number into unreadability. */
+body.scoreboard-mode .tv-gameboard:has(.tv-player-progress:nth-child(6)) .tv-player-notes,
+body.scoreboard-mode .tv-gameboard:has(.tv-player-progress:nth-child(6)) .tv-player-notes-empty {
+  display: none;
+}
+body.scoreboard-mode .tv-gameboard:has(.tv-player-progress:nth-child(6)) .tv-player-progress {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+/* Higher / Lower */
+body.scoreboard-mode .tv-crowd-call { font-size: clamp(38px, 2.65vw, 58px); }
+body.scoreboard-mode .tv-crowd-call b,
+body.scoreboard-mode .tv-hl-copy > p,
+body.scoreboard-mode .tv-hl-host > p { font-size: var(--tv-copy); }
+body.scoreboard-mode .tv-sample-letter {
+  width: clamp(44px, 3vw, 62px);
+  height: clamp(44px, 3vw, 62px);
+  font-size: clamp(26px, 1.8vw, 38px);
+}
+body.scoreboard-mode .tv-drunk-bottle-value {
+  font-family: var(--font-condensed);
+  font-size: var(--tv-data);
+  font-weight: 900;
+}
+body.scoreboard-mode .tv-hl-values span {
+  font-family: var(--font-condensed);
+  font-size: clamp(24px, 1.55vw, 34px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+body.scoreboard-mode .tv-hl-values small {
+  font-size: var(--tv-copy);
+  line-height: 1.05;
+  color: #3f2518;
+}
+body.scoreboard-mode .tv-hl-arrows span,
+body.scoreboard-mode .tv-calls-locked,
+body.scoreboard-mode .tv-hl-ready span { font-size: var(--tv-copy); }
+body.scoreboard-mode .tv-hl-ready strong { font-size: var(--tv-number); }
+
+/* Reveal */
+body.scoreboard-mode .tv-stage-title strong { font-size: clamp(26px, 1.85vw, 40px); }
+body.scoreboard-mode .tv-stage-title span { font-size: var(--tv-copy); color: #ffe4a7; }
+body.scoreboard-mode .tv-place-chip,
+body.scoreboard-mode .tv-player-place {
+  width: clamp(42px, 2.8vw, 58px);
+  height: clamp(42px, 2.8vw, 58px);
+  font-size: clamp(22px, 1.45vw, 32px);
+}
+body.scoreboard-mode .tv-reveal-card > b { font-size: var(--tv-label); }
+body.scoreboard-mode .tv-reveal-card h3 {
+  font-family: var(--font-condensed);
+  font-size: clamp(23px, 1.55vw, 34px);
+  font-weight: 900;
+  line-height: 1.02;
+}
+body.scoreboard-mode .tv-reveal-card > p,
+body.scoreboard-mode .tv-reveal-card > div,
+body.scoreboard-mode .tv-reveal-card.is-hidden p { font-size: var(--tv-copy); }
+body.scoreboard-mode .tv-reveal-notes li { font-size: var(--tv-copy); line-height: 1.16; }
+body.scoreboard-mode .tv-vault-meter strong { font-size: clamp(38px, 2.4vw, 52px); }
+body.scoreboard-mode .tv-vault-meter span,
+body.scoreboard-mode .tv-reveal-instruction { font-size: var(--tv-copy); }
+
+body.scoreboard-mode .tv-gameboard:has(.tv-reveal-card:nth-child(6)) .tv-reveal-notes {
+  display: none;
+}
+body.scoreboard-mode .tv-gameboard:has(.tv-reveal-card:nth-child(6)) .tv-reveal-card {
+  gap: clamp(4px, .25vw, 8px);
+}
+
+/* Bottle and contestant award cards */
+body.scoreboard-mode .tv-bottle-award-copy > span,
+body.scoreboard-mode .tv-final-award > span,
+body.scoreboard-mode .tv-final-award.is-loser span,
+body.scoreboard-mode .tv-points-legend strong { font-size: var(--tv-label); }
+body.scoreboard-mode .tv-bottle-award-copy > strong,
+body.scoreboard-mode .tv-player-result-card h2,
+body.scoreboard-mode .tv-final-award > strong,
+body.scoreboard-mode .tv-final-award.is-loser div > strong {
+  font-family: var(--font-condensed);
+  font-size: clamp(24px, 1.65vw, 36px);
+  font-weight: 900;
+}
+body.scoreboard-mode .tv-bottle-award-copy > small,
+body.scoreboard-mode .tv-bottle-award-copy q,
+body.scoreboard-mode .tv-points-legend span,
+body.scoreboard-mode .tv-player-result-card > p,
+body.scoreboard-mode .tv-final-award p,
+body.scoreboard-mode .tv-final-board-tease { font-size: var(--tv-copy); }
+body.scoreboard-mode .tv-player-result-card > strong { font-size: var(--tv-data); }
+body.scoreboard-mode .tv-player-score-breakdown span {
+  font-family: var(--font-condensed);
+  font-size: var(--tv-data);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+body.scoreboard-mode .tv-player-score-breakdown small { font-size: var(--tv-copy); }
+body.scoreboard-mode .tv-final-award h2 {
+  font-family: var(--font-condensed);
+  font-size: clamp(34px, 2.6vw, 58px);
+  font-weight: 900;
+}
+
+/* Final score table — this was the biggest readability failure on a 1080p TV. */
+body.scoreboard-mode .tv-final-score-head {
+  min-height: clamp(34px, 2.2vw, 48px);
+  font-size: clamp(15px, .92vw, 20px);
+  line-height: 1.05;
+  color: #ffe69d;
+  background: rgba(0, 0, 0, .34);
+  border-radius: 6px 6px 0 0;
+}
+body.scoreboard-mode .tv-final-score-row {
+  min-height: clamp(38px, 2.55vw, 56px);
+  font-family: var(--font-condensed);
+  font-size: clamp(18px, 1.08vw, 24px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  background: rgba(255, 255, 255, .12);
+  border-color: rgba(255, 239, 199, .58);
+}
+body.scoreboard-mode .tv-final-score-row:nth-child(odd):not(.is-leader) {
+  background: rgba(16, 59, 88, .38);
+}
+body.scoreboard-mode .tv-final-score-row > strong {
+  font-size: clamp(20px, 1.3vw, 28px);
+  font-weight: 900;
+}
+body.scoreboard-mode .tv-final-score-row > b {
+  font-family: var(--font-condensed);
+  font-size: clamp(24px, 1.48vw, 32px);
+  font-weight: 900;
+}
+body.scoreboard-mode .tv-final-score-row > span:first-child {
+  width: clamp(28px, 1.75vw, 38px);
+  height: clamp(28px, 1.75vw, 38px);
+  font-size: clamp(17px, 1vw, 22px);
+  font-weight: 900;
+}
+body.scoreboard-mode .tv-final-score-head,
+body.scoreboard-mode .tv-final-score-row {
+  grid-template-columns:
+    clamp(30px, 2vw, 42px)
+    minmax(130px, 1.45fr)
+    repeat(7, minmax(48px, .62fr));
+  column-gap: clamp(3px, .3vw, 8px);
+}
+
+/* Ten contestants must still fit in the fixed-height final scene. At seven or
+   more rows, keep type at a readable floor and let the grid divide the space
+   instead of forcing tall rows outside the television viewport. */
+body.scoreboard-mode .tv-final-score-table:has(.tv-final-score-row:nth-child(8)) {
+  gap: clamp(1px, .08vw, 3px);
+}
+body.scoreboard-mode .tv-final-score-table:has(.tv-final-score-row:nth-child(8)) .tv-final-score-head {
+  min-height: 28px;
+  padding-block: 1px;
+  font-size: clamp(13px, .78vw, 17px);
+}
+body.scoreboard-mode .tv-final-score-table:has(.tv-final-score-row:nth-child(8)) .tv-final-score-row {
+  min-height: 0;
+  padding-block: 1px;
+  font-size: clamp(16px, .92vw, 20px);
+  line-height: 1;
+}
+body.scoreboard-mode .tv-final-score-table:has(.tv-final-score-row:nth-child(8)) .tv-final-score-row > strong {
+  font-size: clamp(17px, 1vw, 22px);
+}
+body.scoreboard-mode .tv-final-score-table:has(.tv-final-score-row:nth-child(8)) .tv-final-score-row > b {
+  font-size: clamp(20px, 1.2vw, 26px);
+}
+body.scoreboard-mode .tv-final-score-table:has(.tv-final-score-row:nth-child(8)) .tv-final-score-row > span:first-child {
+  width: clamp(24px, 1.45vw, 32px);
+  height: clamp(24px, 1.45vw, 32px);
+  font-size: clamp(15px, .88vw, 19px);
+}
+body.scoreboard-mode .tv-finish-card > strong { font-size: clamp(18px, 1.05vw, 23px); }
+body.scoreboard-mode .tv-finish-card > span {
+  font-family: var(--font-condensed);
+  font-size: clamp(27px, 1.65vw, 36px);
+  font-weight: 900;
+}
+body.scoreboard-mode .tv-finish-card > small { font-size: clamp(14px, .82vw, 18px); }
+
+/* Player reveal leaderboard */
+body.scoreboard-mode .tv-player-leaderboard > div {
+  min-height: clamp(34px, 2.15vw, 48px);
+  font-size: var(--tv-data);
+}
+body.scoreboard-mode .tv-player-leaderboard > div > strong {
+  font-family: var(--font-condensed);
+  font-size: var(--tv-data);
+  font-weight: 900;
+}
+
+/* Protect against TV overscan without shrinking the content. */
+@media (min-width: 1280px) and (min-aspect-ratio: 16 / 10) {
+  body.scoreboard-mode .tv-phase-marquee { left: max(calc(2.1 * var(--tv-u)), 30px); }
+  body.scoreboard-mode .tv-join-bug { right: max(calc(2 * var(--tv-u)), 30px); }
+  body.scoreboard-mode .tv-stage {
+    left: max(calc(2 * var(--tv-u)), 30px);
+    right: max(calc(2 * var(--tv-u)), 30px);
+    bottom: max(calc(1.6 * var(--tv-u)), 22px);
+  }
+}
+
+/* A phone may briefly open the scoreboard while testing. Keep the overrides
+   from forcing desktop-sized type into a portrait viewport. */
+@media (max-width: 900px), (max-aspect-ratio: 4 / 3) {
+  body.scoreboard-mode .tv-gameboard {
+    --tv-copy: clamp(10px, 1.7vw, 15px);
+    --tv-label: clamp(11px, 1.9vw, 16px);
+    --tv-data: clamp(12px, 2.1vw, 18px);
+    --tv-title: clamp(18px, 3.8vw, 30px);
+    --tv-number: clamp(18px, 3.2vw, 28px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.scoreboard-mode .tv-gameboard *,
+  body.scoreboard-mode .tv-gameboard *::before,
+  body.scoreboard-mode .tv-gameboard *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Runtime status UI used by claim-guard.js */
+.claim-status {
+  padding: 11px 13px;
+  border: 2px solid #78521e;
+  border-radius: 9px;
+  color: #3a2115;
+  background: #f6dc91;
+  font-family: var(--font-condensed);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+}
+.claim-status[data-tone="success"] { border-color: #416947; background: #d9ebd9; }
+.claim-status[data-tone="error"] { border-color: #7e1e17; color: #fff; background: #92271f; }
+.claim-recovery-panel {
+  display: grid;
+  gap: 9px;
+  padding: 13px;
+  border: 3px solid #7e1e17;
+  border-radius: 11px;
+  background: #fff0cf;
+}
+.claim-recovery-panel > strong { font-family: var(--font-display); }
+.claim-recovery-panel > span { line-height: 1.45; }
+.claim-recovery-panel > div { display: flex; gap: 9px; flex-wrap: wrap; }
+select[data-claim-locked="1"] { pointer-events: none; opacity: .72; }
+html.is-offline body:not(.scoreboard-mode)::after {
+  content: "No internet connection — live game updates are paused.";
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 1000;
+  padding: 10px 14px;
+  border: 3px solid #17130f;
+  border-radius: 10px;
+  color: #fff;
+  background: #7e1e17;
+  box-shadow: 0 5px 0 #17130f;
+  font-family: var(--font-condensed);
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
