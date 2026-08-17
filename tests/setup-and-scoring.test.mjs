@@ -22,6 +22,14 @@ import {
 } from '../js/registration.js';
 import { activeBottlesFromDraft } from '../js/setup.js';
 import {
+  emptyFinaleState,
+  finaleCueMatches,
+  finalePlayersComplete,
+  fullFinaleState,
+  nextFinaleState,
+  normalizeFinaleState,
+} from '../js/finale.js';
+import {
   REVEAL_TASTING_NOTE_MAX_LENGTH,
   sanitizeTastingNotesByLetter,
   selectRevealTastingNotes,
@@ -69,6 +77,38 @@ function drunkBottleTagFor(html, letter) {
 function classCount(html, className, { prefix = false } = {}) {
   const suffix = prefix ? '(?:\\s|\")' : '\"';
   return [...html.matchAll(new RegExp(`class="${className}${suffix}`, 'g'))].length;
+}
+
+function finaleSnapshot(finaleState, phase = 'reveal') {
+  const players = [
+    { id: 'p1', name: 'First Palate', order: 0, active: true, bonusPoints: 4 },
+    { id: 'p2', name: 'Middle Palate', order: 1, active: true, bonusPoints: 1 },
+    { id: 'p3', name: 'Basement Palate', order: 2, active: true },
+  ];
+  const bottles = ['A', 'B', 'C'].map((letter, order) => ({ letter, order, active: true, revealed: true }));
+  const details = {
+    A: { letter: 'A', name: 'Budget Barn Burner', distillery: 'Test Still', retailPrice: 25, proof: 90 },
+    B: { letter: 'B', name: 'Fancy Shelf Queen', distillery: 'Test Still', retailPrice: 120, proof: 100 },
+    C: { letter: 'C', name: 'Middle Money', distillery: 'Test Still', retailPrice: 55, proof: 110 },
+  };
+  const rankOrders = { p1: ['A', 'C', 'B'], p2: ['A', 'B', 'C'], p3: ['C', 'A', 'B'] };
+  const responses = players.flatMap((player, playerIndex) => bottles.map((bottle) => ({
+    playerId: player.id,
+    bottleLetter: bottle.letter,
+    buyChoice: bottle.letter === 'A' ? 'Hell Yes' : 'Maybe',
+    priceGuess: 35 + playerIndex,
+    proofGuess: 96 + playerIndex,
+    finalRank: rankOrders[player.id].indexOf(bottle.letter) + 1,
+    priceHL: bottle.letter === 'A' ? 'Lower' : 'Higher',
+    proofHL: bottle.letter === 'C' ? 'Higher' : 'Lower',
+  })));
+  return {
+    game: { code: 'FINALE1', title: 'Grand Finale Test', phase, finaleState },
+    players,
+    bottles,
+    details,
+    responses,
+  };
 }
 
 function easterEggFixture({ gameCode = 'EGG001', phase = 'final', presses = 0, dismissed = false } = {}) {
@@ -579,6 +619,120 @@ test('the final TV stage renders the real biggest-loser artwork and no persisten
   assert.doesNotMatch(html, /tv-scoreboard-header|under wraps/i);
 });
 
+test('finale state is backward-compatible, bounded, and records one-shot curtain cues', () => {
+  assert.deepEqual(emptyFinaleState().revealedPlayerIds, []);
+  assert.equal(normalizeFinaleState({ phase: 'final' }).finalBoardRevealed, true, 'Legacy final games stay visible');
+  assert.equal(normalizeFinaleState({ phase: 'reveal' }).finalBoardRevealed, false);
+
+  const playerReveal = nextFinaleState(
+    { finaleState: emptyFinaleState() },
+    { scene: 'players', revealedPlayerIds: ['p2', 'p2'] },
+    { type: 'player', target: 'p2' },
+  );
+  assert.deepEqual(playerReveal.revealedPlayerIds, ['p2']);
+  assert.equal(playerReveal.scene, 'players');
+  assert.equal(playerReveal.cueId, 1);
+  assert.equal(finaleCueMatches({ type: playerReveal.cueType, target: playerReveal.cueTarget }, 'player', 'p2'), true);
+  assert.equal(finalePlayersComplete(playerReveal, [{ id: 'p1' }, { id: 'p2' }]), false);
+
+  const full = fullFinaleState({ finaleState: playerReveal }, [{ id: 'p1' }, { id: 'p2' }]);
+  assert.equal(full.finalBoardRevealed, true);
+  assert.equal(full.savantRevealed, true);
+  assert.equal(full.biggestLoserRevealed, true);
+  assert.deepEqual(full.revealedPlayerIds, ['p1', 'p2']);
+  assert.equal(finalePlayersComplete(full, [{ id: 'p1' }, { id: 'p2' }]), true);
+});
+
+test('the reveal TV supports host-selected bottle, player, and award curtain scenes', () => {
+  const bottleState = {
+    ...emptyFinaleState(),
+    valueChampionRevealed: true,
+    cueId: 1,
+    cueType: 'valueChampion',
+  };
+  const bottleSnapshot = finaleSnapshot(bottleState);
+  const bottleHtml = renderTvScoreboard({
+    snapshot: bottleSnapshot,
+    calc: calculateGame(bottleSnapshot),
+    joinUrl: 'https://example.test/?game=FINALE1',
+    qrUrl: 'https://example.test/qr.svg',
+    activeCue: { type: 'valueChampion', target: '' },
+  });
+  assert.match(bottleHtml, /The Derby Finish/);
+  assert.match(bottleHtml, /Value Champion/);
+  assert.match(bottleHtml, /tv-special-bottle-award tv-curtain-card is-curtain-open is-curtain-cue/);
+  assert.match(bottleHtml, /Biggest Upset/);
+  assert.match(bottleHtml, /tv-special-bottle-award tv-curtain-card is-curtain-closed/);
+
+  const playerState = { ...bottleState, scene: 'players', revealedPlayerIds: ['p2'], cueId: 2, cueType: 'player', cueTarget: 'p2' };
+  const playerSnapshot = finaleSnapshot(playerState);
+  const playerHtml = renderTvScoreboard({
+    snapshot: playerSnapshot,
+    calc: calculateGame(playerSnapshot),
+    joinUrl: 'https://example.test/?game=FINALE1',
+    qrUrl: 'https://example.test/qr.svg',
+    activeCue: { type: 'player', target: 'p2' },
+  });
+  assert.match(playerHtml, /Contestant Standings/);
+  assert.equal(classCount(playerHtml, 'tv-player-result-card', { prefix: true }), 3);
+  assert.match(playerHtml, /Middle Palate/);
+  assert.match(playerHtml, /is-curtain-cue/);
+
+  const awardState = { ...playerState, scene: 'awards', savantRevealed: true, cueId: 3, cueType: 'savant', cueTarget: '' };
+  const awardSnapshot = finaleSnapshot(awardState);
+  const awardHtml = renderTvScoreboard({
+    snapshot: awardSnapshot,
+    calc: calculateGame(awardSnapshot),
+    joinUrl: 'https://example.test/?game=FINALE1',
+    qrUrl: 'https://example.test/qr.svg',
+    activeCue: { type: 'savant', target: '' },
+  });
+  assert.match(awardHtml, /The Final Two/);
+  assert.match(awardHtml, /data-award="bourbon-savant"/);
+  assert.match(awardHtml, /data-award="biggest-loser"/);
+  assert.match(awardHtml, /Behind the curtain/);
+});
+
+test('the full final TV shows both awards, every player point component, and bottle awards', () => {
+  const initial = finaleSnapshot(emptyFinaleState(), 'final');
+  initial.game.finaleState = fullFinaleState(initial.game, initial.players);
+  const html = renderTvScoreboard({
+    snapshot: initial,
+    calc: calculateGame(initial),
+    joinUrl: 'https://example.test/?game=FINALE1',
+    qrUrl: 'https://example.test/qr.svg',
+    activeCue: { type: 'finalBoard', target: '' },
+  });
+
+  assert.match(html, /is-final-curtain-cue/);
+  assert.match(html, /Official Final Score/);
+  for (const label of ['Price H\/L', 'Proof H\/L', 'Price Game', 'Top Pick', 'Last Pick', 'Bonus', 'Total']) {
+    assert.match(html, new RegExp(label));
+  }
+  for (const player of initial.players) assert.match(html, new RegExp(player.name));
+  assert.match(html, /Value: .* · Biggest Upset:/);
+  assert.match(html, /tv-final-score-table/);
+  assert.match(html, /tv-finish-strip/);
+});
+
+test('the host controls every finale reveal and reset clears the sequence', () => {
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const storeSource = readFileSync(new URL('../js/store.js', import.meta.url), 'utf8');
+
+  for (const action of [
+    'set-finale-scene',
+    'reveal-finale-item',
+    'reveal-player-result',
+    'reveal-next-player',
+    'reveal-final-board',
+    'hide-final-board',
+  ]) assert.match(appSource, new RegExp(`data-action="${action}"|action === '${action}'`));
+  assert.match(appSource, /nextFinaleState\(state\.snapshot\.game/);
+  assert.match(appSource, /fullFinaleState\(state\.snapshot\.game, calc\.playerResults\)/);
+  assert.match(storeSource, /async resetAnswers\(code\)[\s\S]*finaleState:\s*emptyFinaleState\(\)/);
+  assert.match(storeSource, /data\.game\.finaleState = emptyFinaleState\(\)/);
+});
+
 test('portrait scoreboards center the King Moose without changing the TV layout', () => {
   const styles = readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const portraitStart = styles.indexOf('@media (max-aspect-ratio: 4 / 3)');
@@ -668,6 +822,7 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
     './js/easter-egg.js',
     './js/tasting-notes.js',
     './js/registration.js',
+    './js/finale.js',
     './assets/moose-bourbon-creek.webp',
     './assets/moose-moonshiner.webp',
     './assets/moose-game-show-host.webp',
@@ -677,7 +832,7 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v14-self-registration'/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v15-grand-finale'/);
   assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v11-phone-king-centering/);
   const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
   const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);

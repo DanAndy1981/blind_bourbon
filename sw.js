@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v14-self-registration';
+const CACHE_NAME = 'blind-bourbon-derby-v15-grand-finale';
 const APP_SHELL = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const APP_SHELL = [
   './js/claim-guard.js',
   './js/store.js',
   './js/registration.js',
+  './js/finale.js',
   './js/scoring.js',
   './js/scoreboard.js',
   './js/easter-egg.js',
