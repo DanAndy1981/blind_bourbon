@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v6-rubber-hose-art';
+const CACHE_NAME = 'blind-bourbon-derby-v7-moonshiner-progress';
 const APP_SHELL = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const APP_SHELL = [
   './assets/derby-scorecard.webp',
   './assets/moose.webp',
   './assets/moose-bourbon-creek.webp',
+  './assets/moose-moonshiner.webp',
   './assets/moose-game-show-host.webp',
   './assets/biggest-loser-poop.webp',
   './assets/favicon.png',
