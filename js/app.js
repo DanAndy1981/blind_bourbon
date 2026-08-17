@@ -12,7 +12,12 @@ import {
 } from './scoring.js';
 import { BOTTLE_LETTERS, activeBottlesFromDraft, hasBottleSetupInfo } from './setup.js';
 import { renderTvScoreboard } from './scoreboard.js';
-import { advanceEasterEggPresses, createEasterEggView } from './easter-egg.js';
+import {
+  advanceEasterEggPresses,
+  createFinalScoreboardEasterEggView,
+  createParticipantEasterEggView,
+  renderEasterEgg,
+} from './easter-egg.js';
 
 const root = document.querySelector('#app');
 const LETTERS = BOTTLE_LETTERS;
@@ -39,7 +44,7 @@ const state = {
   pollTimer: null,
   saveTimers: new Map(),
   saveStatus: 'saved',
-  scoreboardEasterEgg: { gameCode: null, presses: 0, dismissed: false },
+  easterEggSessions: new Map(),
 };
 
 const esc = (value) => String(value ?? '')
@@ -508,6 +513,15 @@ function renderPlayerCard(player) {
   const hlEditable = game.phase === 'higherLower';
   const notesEditable = game.phase === 'tasting' || game.phase === 'higherLower';
   const avg = game.publicAverages?.[bottle?.letter] || {};
+  const easterEggSession = getEasterEggSession('player', game.phase, player.id);
+  const easterEgg = createParticipantEasterEggView({
+    gameCode: state.code,
+    phase: game.phase,
+    players: snapshot.players,
+    playerId: player.id,
+    presses: easterEggSession.presses,
+    dismissed: easterEggSession.dismissed,
+  });
 
   if (!bottle) return `${renderGameMasthead(game, player.name)}<section class="paper-panel empty-state ink-frame"><h2>No bottles are active yet.</h2></section>`;
 
@@ -602,6 +616,7 @@ function renderPlayerCard(player) {
       </section>
 
       ${game.phase === 'final' ? renderPersonalScore(playerResult) : ''}`}
+    ${renderEasterEgg(easterEgg)}
   `;
 }
 
@@ -863,22 +878,21 @@ function renderScoreboardPage() {
   const calc = calculateGame(state.snapshot);
   const joinUrl = buildUrl(state.code).toString();
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&format=svg&qzone=1&data=${encodeURIComponent(joinUrl)}`;
-  const session = scoreboardEasterEggSession();
-  const easterEgg = createEasterEggView({
-    gameCode: state.code,
+  const session = getEasterEggSession('scoreboard', state.snapshot.game.phase);
+  const easterEgg = createFinalScoreboardEasterEggView({
     phase: state.snapshot.game.phase,
-    bottles: state.snapshot.bottles,
     presses: session.presses,
     dismissed: session.dismissed,
   });
   return renderTvScoreboard({ snapshot: state.snapshot, calc, joinUrl, qrUrl, easterEgg });
 }
 
-function scoreboardEasterEggSession() {
-  if (state.scoreboardEasterEgg.gameCode !== state.code) {
-    state.scoreboardEasterEgg = { gameCode: state.code, presses: 0, dismissed: false };
+function getEasterEggSession(surface, phase, playerId = '') {
+  const key = `${state.code || ''}:${surface}:${phase || ''}:${playerId || ''}`;
+  if (!state.easterEggSessions.has(key)) {
+    state.easterEggSessions.set(key, { presses: 0, dismissed: false });
   }
-  return state.scoreboardEasterEgg;
+  return state.easterEggSessions.get(key);
 }
 
 function revealedName(bottle, details) {
@@ -1042,16 +1056,30 @@ root.addEventListener('click', async (event) => {
   if (!button) return;
   const action = button.dataset.action;
 
-  if (action === 'press-tv-easter-egg') {
-    if (state.view !== 'scoreboard') return;
-    const session = scoreboardEasterEggSession();
+  if (action === 'press-easter-egg') {
+    const surface = state.view === 'scoreboard' ? 'scoreboard' : 'player';
+    const phase = state.snapshot?.game?.phase;
+    const playerId = surface === 'player' ? state.playerId : '';
+    if (!phase || (surface === 'player' && !playerId)) return;
+    const session = getEasterEggSession(surface, phase, playerId);
     session.presses = advanceEasterEggPresses(session.presses);
     render();
+    if (surface === 'player' && session.presses === 3) {
+      await safeAction(async () => {
+        await state.store.completeEasterEgg(state.code, playerId, phase);
+        const player = state.snapshot.players.find((item) => item.id === playerId);
+        if (player) Object.assign(player, { easterEggCompleted: true, easterEggCompletedStage: phase });
+        render();
+      });
+    }
     return;
   }
-  if (action === 'dismiss-tv-easter-egg') {
-    if (state.view !== 'scoreboard') return;
-    scoreboardEasterEggSession().dismissed = true;
+  if (action === 'dismiss-easter-egg') {
+    const surface = state.view === 'scoreboard' ? 'scoreboard' : 'player';
+    const phase = state.snapshot?.game?.phase;
+    const playerId = surface === 'player' ? state.playerId : '';
+    if (!phase || (surface === 'player' && !playerId)) return;
+    getEasterEggSession(surface, phase, playerId).dismissed = true;
     render();
     return;
   }

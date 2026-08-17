@@ -5,9 +5,10 @@ import test from 'node:test';
 import {
   EASTER_EGG_COPY,
   advanceEasterEggPresses,
-  createEasterEggView,
-  easterEggConfig,
-  isEasterEggStageEligible,
+  completedEasterEggPlayer,
+  createFinalScoreboardEasterEggView,
+  createParticipantEasterEggView,
+  participantEasterEggTarget,
   renderEasterEgg,
 } from '../js/easter-egg.js';
 import { calculateGame, summarizePlayerProgress } from '../js/scoring.js';
@@ -58,9 +59,9 @@ function classCount(html, className, { prefix = false } = {}) {
   return [...html.matchAll(new RegExp(`class="${className}${suffix}`, 'g'))].length;
 }
 
-function easterEggFixture({ gameCode = 'EGG001', phase = 'tasting', revealed = false, presses = 0, dismissed = false } = {}) {
-  const bottles = [{ letter: 'A', order: 0, active: true, revealed }];
-  const view = createEasterEggView({ gameCode, phase, bottles, presses, dismissed });
+function easterEggFixture({ gameCode = 'EGG001', phase = 'final', presses = 0, dismissed = false } = {}) {
+  const bottles = [{ letter: 'A', order: 0, active: true, revealed: phase === 'final' }];
+  const view = createFinalScoreboardEasterEggView({ phase, presses, dismissed });
   const snapshot = {
     game: { code: gameCode, title: 'Test Derby', phase },
     players: [{ id: 'p1', name: 'Daniel', order: 0, active: true }],
@@ -183,36 +184,42 @@ test('the TV renderer maps every game phase to an active game-show stage', () =>
   assert.equal(scoreboardStage('something-old'), 'setup');
 });
 
-test('the Easter egg chooses a deterministic eligible stage and placement from the game code', () => {
-  const expected = {
-    EGG000: { stage: 'postReveal', placement: 'upper-right' },
-    EGG001: { stage: 'tasting', placement: 'upper-left' },
-    EGG002: { stage: 'higherLower', placement: 'lower-right' },
-  };
+test('the participant hunt rotates deterministically across Taste, H/L, and Reveal', () => {
+  const tenPlayers = Array.from({ length: 10 }, (_, order) => ({ id: `p${order + 1}`, name: `Player ${order + 1}`, order, active: true }));
+  const tenTargets = ['tasting', 'higherLower', 'reveal'].map((phase) => participantEasterEggTarget('EGG001', tenPlayers, phase)?.id);
+  assert.equal(new Set(tenTargets).size, 3);
+  assert.deepEqual(
+    ['tasting', 'higherLower', 'reveal'].map((phase) => participantEasterEggTarget(' egg001 ', tenPlayers, phase)?.id),
+    tenTargets,
+  );
 
-  for (const [gameCode, config] of Object.entries(expected)) {
-    assert.deepEqual(easterEggConfig(gameCode), config);
-    assert.deepEqual(easterEggConfig(gameCode), config);
-    assert.deepEqual(easterEggConfig(`  ${gameCode.toLowerCase()}  `), config);
-  }
+  const twoPlayers = tenPlayers.slice(0, 2);
+  const twoTargets = ['tasting', 'higherLower', 'reveal'].map((phase) => participantEasterEggTarget('EGG001', twoPlayers, phase)?.id);
+  assert.notEqual(twoTargets[0], twoTargets[1]);
+  assert.equal(twoTargets[2], twoTargets[0]);
+  assert.equal(participantEasterEggTarget('EGG001', twoPlayers, 'final'), null);
 });
 
-test('the Easter egg appears only in its selected round and post-reveal waits for a bottle', () => {
-  const hiddenBottle = [{ letter: 'A', active: true, revealed: false }];
-  const revealedBottle = [{ letter: 'A', active: true, revealed: true }];
+test('only one participant sees each round and a completed hunt stops later handoffs', () => {
+  const players = Array.from({ length: 4 }, (_, order) => ({ id: `p${order + 1}`, name: `Player ${order + 1}`, order, active: true }));
+  const tastingTarget = participantEasterEggTarget('EGG001', players, 'tasting');
+  const hlTarget = participantEasterEggTarget('EGG001', players, 'higherLower');
+  const revealTarget = participantEasterEggTarget('EGG001', players, 'reveal');
 
-  for (const stage of ['tasting', 'higherLower', 'postReveal']) {
-    assert.equal(isEasterEggStageEligible(stage, { phase: 'setup', bottles: revealedBottle }), false);
+  for (const player of players) {
+    const view = createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'tasting', players, playerId: player.id });
+    assert.equal(view.eligible, player.id === tastingTarget.id);
   }
+  assert.equal(createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'higherLower', players, playerId: hlTarget.id }).eligible, true);
+  assert.equal(createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'reveal', players, playerId: revealTarget.id }).eligible, true);
+  assert.equal(createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'final', players, playerId: tastingTarget.id }).eligible, false);
 
-  assert.equal(isEasterEggStageEligible('tasting', { phase: 'tasting', bottles: hiddenBottle }), true);
-  assert.equal(isEasterEggStageEligible('tasting', { phase: 'higherLower', bottles: hiddenBottle }), false);
-  assert.equal(isEasterEggStageEligible('higherLower', { phase: 'higherLower', bottles: hiddenBottle }), true);
-  assert.equal(isEasterEggStageEligible('higherLower', { phase: 'tasting', bottles: hiddenBottle }), false);
-  assert.equal(isEasterEggStageEligible('postReveal', { phase: 'reveal', bottles: hiddenBottle }), false);
-  assert.equal(isEasterEggStageEligible('postReveal', { phase: 'reveal', bottles: revealedBottle }), true);
-  assert.equal(isEasterEggStageEligible('postReveal', { phase: 'final', bottles: revealedBottle }), true);
-  assert.equal(isEasterEggStageEligible('postReveal', { phase: 'final', bottles: hiddenBottle }), false);
+  tastingTarget.easterEggCompleted = true;
+  tastingTarget.easterEggCompletedStage = 'tasting';
+  assert.equal(completedEasterEggPlayer(players)?.id, tastingTarget.id);
+  assert.equal(createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'higherLower', players, playerId: hlTarget.id }).eligible, false);
+  assert.equal(createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'reveal', players, playerId: revealTarget.id }).eligible, false);
+  assert.equal(createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'tasting', players, playerId: tastingTarget.id, presses: 3 }).eligible, true);
 });
 
 test('the Easter egg follows the exact three warnings and preserves concern across rerenders', () => {
@@ -223,9 +230,10 @@ test('the Easter egg follows the exact three warnings and preserves concern acro
   ]);
 
   let presses = 0;
+  const players = [{ id: 'p1', name: 'Daniel', order: 0, active: true }];
   for (const [concern, label] of EASTER_EGG_COPY.entries()) {
-    const firstView = createEasterEggView({ gameCode: 'EGG001', phase: 'tasting', presses });
-    const rerenderedView = createEasterEggView({ gameCode: 'EGG001', phase: 'tasting', presses });
+    const firstView = createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'tasting', players, playerId: 'p1', presses });
+    const rerenderedView = createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'tasting', players, playerId: 'p1', presses });
     assert.equal(firstView.eligible, true);
     assert.equal(firstView.label, label);
     assert.equal(firstView.concern, concern);
@@ -240,37 +248,39 @@ test('the Easter egg follows the exact three warnings and preserves concern acro
 });
 
 test('the third press opens the shower surprise and dismissal persists until a new game session', () => {
-  const { html, view } = easterEggFixture({ presses: 3 });
+  const players = [{ id: 'p1', name: 'Daniel', order: 0, active: true }];
+  const view = createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'tasting', players, playerId: 'p1', presses: 3 });
+  const html = renderEasterEgg(view);
   const alt = imageAltFor(html, 'moose-shower-surprise.webp');
 
   assert.equal(view.showSurprise, true);
-  assert.match(html, /class="tv-shower-surprise"/);
+  assert.match(html, /class="tv-shower-surprise surface-player"/);
   assert.match(html, /role="dialog"/);
   assert.match(html, /aria-modal="true"/);
   assert.match(html, /class="tv-shower-surprise-curtain"/);
   assert.match(html, /class="tv-shower-surprise-image"/);
   assert.match(html, /class="tv-shower-surprise-dismiss"/);
-  assert.match(html, /data-action="dismiss-tv-easter-egg"/);
+  assert.match(html, /data-action="dismiss-easter-egg"/);
   assert.doesNotMatch(html, /class="tv-do-not-press/);
   assert.match(alt, /drunk moose/i);
   assert.match(alt, /shower|curtain/i);
   assert.match(alt, /surprise|caught|ridiculous/i);
 
-  const dismissedView = createEasterEggView({ gameCode: 'EGG001', phase: 'tasting', presses: 3, dismissed: true });
+  const dismissedView = createParticipantEasterEggView({ gameCode: 'EGG001', phase: 'tasting', players, playerId: 'p1', presses: 3, dismissed: true });
   assert.equal(dismissedView.dismissed, true);
   assert.equal(dismissedView.eligible, false);
   assert.equal(renderEasterEgg(dismissedView), '');
 
-  const newGameView = createEasterEggView({ gameCode: 'EGG002', phase: 'higherLower', presses: 0, dismissed: false });
+  const newGameView = createParticipantEasterEggView({ gameCode: 'EGG002', phase: 'higherLower', players, playerId: 'p1', presses: 0, dismissed: false });
   assert.equal(newGameView.dismissed, false);
   assert.equal(newGameView.label, EASTER_EGG_COPY[0]);
   assert.equal(newGameView.concern, 0);
   assert.equal(newGameView.showSurprise, false);
-  assert.match(renderEasterEgg(newGameView), /data-action="press-tv-easter-egg"/);
+  assert.match(renderEasterEgg(newGameView), /data-action="press-easter-egg"/);
 
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
-  assert.match(appSource, /state\.scoreboardEasterEgg = \{ gameCode: state\.code, presses: 0, dismissed: false \}/);
-  assert.match(appSource, /scoreboardEasterEggSession\(\)\.dismissed = true/);
+  assert.match(appSource, /easterEggSessions: new Map\(\)/);
+  assert.match(appSource, /state\.store\.completeEasterEgg\(state\.code, playerId, phase\)/);
 });
 
 test('the host results embed has no Easter-egg renderer or controls', () => {
@@ -283,10 +293,14 @@ test('the host results embed has no Easter-egg renderer or controls', () => {
   assert.match(appSource, /state\.hostTab === 'results' \? renderScoreboardBody\(true\)/);
   assert.doesNotMatch(hostRendererSource, /EasterEgg|easter-egg|tv-do-not-press|tv-shower-surprise/i);
 
-  const { html } = easterEggFixture({ presses: 0 });
-  assert.match(html, /data-action="press-tv-easter-egg"/);
+  const { html, view } = easterEggFixture({ presses: 0 });
+  assert.equal(view.placement, 'qr');
+  assert.match(html, /data-action="press-easter-egg"/);
+  assert.match(html, /surface-scoreboard[^"\n]*placement-qr/);
   const standaloneWithoutView = renderTvPhase('tasting');
-  assert.doesNotMatch(standaloneWithoutView, /press-tv-easter-egg|tv-do-not-press|tv-shower-surprise/);
+  assert.doesNotMatch(standaloneWithoutView, /press-easter-egg|tv-do-not-press|tv-shower-surprise/);
+  assert.equal(createFinalScoreboardEasterEggView({ phase: 'reveal' }).eligible, false);
+  assert.equal(createFinalScoreboardEasterEggView({ phase: 'final' }).eligible, true);
 });
 
 test('the setup TV stage renders the moonshiner moose artwork with meaningful alt text', () => {
@@ -449,6 +463,19 @@ test('the final TV stage renders the real biggest-loser artwork and no persisten
   assert.doesNotMatch(html, /tv-scoreboard-header|under wraps/i);
 });
 
+test('participant completion is shared on the player card and reset with the game', () => {
+  const storeSource = readFileSync(new URL('../js/store.js', import.meta.url), 'utf8');
+  const rulesSource = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+
+  assert.match(storeSource, /async completeEasterEgg\(code, playerId, phase\)/);
+  assert.match(storeSource, /easterEggCompleted:\s*true/);
+  assert.match(storeSource, /easterEggCompletedStage:\s*phase/);
+  assert.match(storeSource, /async resetAnswers\(code\)[\s\S]*easterEggCompleted:\s*false/);
+  assert.match(rulesSource, /validEasterEggCompletion\(\)/);
+  assert.match(rulesSource, /affectedKeys\(\)\.hasOnly\(\[[\s\S]*'easterEggCompleted'[\s\S]*'easterEggCompletedStage'/);
+  assert.match(rulesSource, /request\.resource\.data\.easterEggCompletedStage in \['tasting', 'higherLower', 'reveal'\]/);
+});
+
 test('the service worker precaches TV assets and refreshes standalone boards safely', () => {
   const serviceWorkerSource = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
@@ -464,8 +491,8 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v9-do-not-press'/);
-  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v8-character-consistency/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v10-participant-hunt'/);
+  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v9-do-not-press/);
   const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
   const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);
   assert.ok(codeAssetStart >= 0 && codeAssetEnd > codeAssetStart, 'Expected a dedicated code-asset fetch path');
