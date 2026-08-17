@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const claimGuard = readFileSync(new URL('../js/claim-guard.js', import.meta.url), 'utf8');
+const registrationDraft = readFileSync(new URL('../js/registration-draft.js', import.meta.url), 'utf8');
 const tvCss = readFileSync(new URL('../css/tv-legibility.css', import.meta.url), 'utf8');
 
 test('registration guard retries the in-app route before hard reloading', () => {
@@ -17,6 +18,13 @@ test('root render guard preserves scroll across polling refreshes', () => {
   assert.match(claimGuard, /const scrollBefore = window\.scrollY/);
   assert.match(claimGuard, /window\.scrollTo\(0, target\)/);
   assert.match(claimGuard, /scoreboard-mode/);
+});
+
+test('unfinished registration input survives DOM redraws', () => {
+  assert.match(registrationDraft, /sessionStorage/);
+  assert.match(registrationDraft, /MutationObserver/);
+  assert.match(registrationDraft, /playerName/);
+  assert.match(registrationDraft, /playerId/);
 });
 
 test('TV typography establishes readable minimum sizes for score data', () => {
