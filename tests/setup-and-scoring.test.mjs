@@ -32,6 +32,13 @@ function imageAltFor(html, assetName) {
   return alt;
 }
 
+function progressBottleTagFor(html, playerName) {
+  const escapedPlayerName = playerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const progressBottle = html.match(new RegExp(`<div\\b[^>]*aria-label="${escapedPlayerName} tasting progress"[^>]*>`, 'i'))?.[0];
+  assert.ok(progressBottle, `Expected ${playerName} to have a tasting progress bottle`);
+  return progressBottle;
+}
+
 test('blank bourbon rows are excluded and active rows are capped at A-J', () => {
   const draft = [
     { letter: 'A', name: '  Alpha  ' },
@@ -137,6 +144,15 @@ test('the TV renderer maps every game phase to an active game-show stage', () =>
   assert.equal(scoreboardStage('something-old'), 'setup');
 });
 
+test('the setup TV stage renders the moonshiner moose artwork with meaningful alt text', () => {
+  const html = renderTvPhase('setup');
+  const alt = imageAltFor(html, 'moose-moonshiner.webp');
+
+  assert.match(html, /data-tv-phase="setup"/);
+  assert.match(alt, /moose/i);
+  assert.match(alt, /moonshin|copper still/i);
+});
+
 test('the tasting TV stage renders the Bourbon Creek moose artwork with meaningful alt text', () => {
   const html = renderTvPhase('tasting');
   const alt = imageAltFor(html, 'moose-bourbon-creek.webp');
@@ -152,8 +168,50 @@ test('the Higher or Lower TV stage renders the microphone host artwork with bour
 
   assert.match(html, /data-tv-phase="higherLower"/);
   assert.match(alt, /moose/i);
+  assert.match(alt, /x(?:-shaped)? eyes/i);
   assert.match(alt, /mic|microphone/i);
   assert.match(alt, /bourbon/i);
+});
+
+test('tasting progress bottles expose percentage semantics and transition through every mood', () => {
+  const moodCases = [
+    { name: 'Stone Sober', progress: 0, mood: 'sober' },
+    { name: 'Warming Up', progress: 0.25, mood: 'warming' },
+    { name: 'Getting Tipsy', progress: 0.5, mood: 'tipsy' },
+    { name: 'Pretty Wobbly', progress: 0.75, mood: 'wobbly' },
+    { name: 'Fully Hammered', progress: 1, mood: 'hammered' },
+  ];
+  const snapshot = {
+    game: { code: 'TEST10', title: 'Test Derby', phase: 'tasting' },
+    players: moodCases.map(({ name, progress }, order) => ({
+      id: `p${order + 1}`,
+      name,
+      order,
+      active: true,
+      tastingProgress: progress,
+      tastingComplete: progress === 1,
+    })),
+    bottles: [{ letter: 'A', order: 0, active: true, revealed: false }],
+    details: {},
+    responses: [],
+  };
+  const html = renderTvScoreboard({
+    snapshot,
+    calc: calculateGame(snapshot),
+    joinUrl: 'https://example.test/?game=TEST10',
+    qrUrl: 'https://example.test/qr.svg',
+  });
+
+  for (const { name, progress, mood } of moodCases) {
+    const percent = progress * 100;
+    const bottle = progressBottleTagFor(html, name);
+    assert.match(bottle, /role="progressbar"/);
+    assert.match(bottle, /aria-valuemin="0"/);
+    assert.match(bottle, /aria-valuemax="100"/);
+    assert.match(bottle, new RegExp(`aria-valuenow="${percent}"`));
+    assert.match(bottle, new RegExp(`--bottle-fill:\\s*${percent}%`));
+    assert.match(bottle, new RegExp(`class="[^"]*\\b${mood}\\b`));
+  }
 });
 
 test('the final TV stage renders the real biggest-loser artwork and no persistent header', () => {
@@ -187,6 +245,7 @@ test('the service worker precaches every phase-specific TV artwork asset', () =>
 
   for (const asset of [
     './assets/moose-bourbon-creek.webp',
+    './assets/moose-moonshiner.webp',
     './assets/moose-game-show-host.webp',
     './assets/biggest-loser-poop.webp',
   ]) {

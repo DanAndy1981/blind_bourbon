@@ -75,7 +75,7 @@ function renderLobbyStage(calc) {
             </div>`).join('')}
         </div>
       </div>
-      <img class="tv-lobby-moose" src="./assets/moose.webp" alt="The Drunk Moose welcomes the contestants">
+      <img class="tv-lobby-moose" src="./assets/moose-moonshiner.webp" alt="The Drunk Moose moonshiner welcomes contestants beside his copper still">
     </section>`;
 }
 
@@ -98,15 +98,33 @@ function renderTastingStage(calc) {
 function renderPlayerProgress(player, letters, index) {
   const completed = new Set(player.tastingCompletedLetters || []);
   const percent = boundedPercent(player.tastingProgress);
+  const mood = progressBottleMood(percent);
   return `
     <article class="tv-player-progress ${player.tastingComplete ? 'is-ready' : ''}" style="--player-index:${index}">
       <div class="tv-player-heading"><span>${index + 1}</span><strong>${esc(player.name)}</strong><b>${player.tastingComplete ? 'LOCKED' : `${percent}%`}</b></div>
       <div class="tv-glass-pips" aria-label="${percent}% complete">
         ${letters.map((letter) => `<span class="${completed.has(letter) ? 'is-done' : ''}">${esc(letter)}</span>`).join('')}
       </div>
-      <div class="tv-progress-track"><i style="width:${percent}%"></i></div>
+      <div class="tv-progress-bottle ${mood}" style="--bottle-fill:${percent}%" role="progressbar" aria-label="${esc(player.name)} tasting progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-valuetext="${percent}% complete">
+        <span class="tv-progress-bottle-liquid" aria-hidden="true"></span>
+        <span class="tv-progress-bottle-face" aria-hidden="true">
+          <span class="tv-progress-bottle-eyes"><i></i><i></i></span>
+          <span class="tv-progress-bottle-mouth"></span>
+        </span>
+        <span class="tv-progress-bottle-arms" aria-hidden="true"><i></i><i></i></span>
+        <span class="tv-progress-bottle-legs" aria-hidden="true"><i></i><i></i></span>
+        <strong class="tv-progress-bottle-value">${percent}%</strong>
+      </div>
       <small>${player.tastingComplete ? 'Ready for the next round' : 'Nosing · guessing · making things up'}</small>
     </article>`;
+}
+
+function progressBottleMood(percent) {
+  if (percent >= 100) return 'hammered';
+  if (percent >= 75) return 'wobbly';
+  if (percent >= 50) return 'tipsy';
+  if (percent >= 25) return 'warming';
+  return 'sober';
 }
 
 function renderHigherLowerStage(game, calc) {
@@ -122,7 +140,7 @@ function renderHigherLowerStage(game, calc) {
       </div>
       <aside class="tv-hl-host">
         <div class="tv-hl-ready"><strong>${ready}<small>/${calc.playerResults.length}</small></strong><span>crowd cards locked</span></div>
-        <img src="./assets/moose-game-show-host.webp" alt="The Drunk Moose in a sweaty velvet suit holding a long game-show wand microphone and a glass of bourbon">
+        <img src="./assets/moose-game-show-host.webp" alt="The Drunk Moose with X-shaped eyes holds bourbon and a long game-show wand microphone in his sweaty velvet suit">
         <p>“The crowd has opinions. Accuracy remains under investigation.”</p>
       </aside>
     </section>`;
