@@ -1,5 +1,6 @@
 import { activeBottlesFromDraft } from './setup.js';
 import { sanitizeTastingNotesByLetter, tastingNotesFromResponses } from './tasting-notes.js';
+import { createPlayerRegistrationSlots, normalizePlayerName } from './registration.js';
 
 const FIREBASE_VERSION = '12.16.0';
 const LOCAL_PREFIX = 'blind-bourbon-derby::';
@@ -93,23 +94,7 @@ class LocalStore {
     }
     if (this.read(code)) throw new Error('That game code already exists in this browser.');
     const createdAt = nowIso();
-    const players = (payload.players || []).map((player, index) => ({
-      id: player.id || makeId(),
-      name: String(player.name || '').trim(),
-      order: index,
-      active: true,
-      claimedBy: null,
-      bonusPoints: Number(player.bonusPoints || 0),
-      tastingProgress: 0,
-      tastingComplete: false,
-      tastingCompletedLetters: [],
-      tastingNotesByLetter: {},
-      higherLowerProgress: 0,
-      higherLowerComplete: false,
-      higherLowerCompletedLetters: [],
-      easterEggCompleted: false,
-      easterEggCompletedStage: null,
-    })).filter((player) => player.name);
+    const players = createPlayerRegistrationSlots(payload.players);
     const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);
     const bottles = activeBottleDrafts.map((bottle, index) => ({
       letter: bottle.letter,
@@ -165,6 +150,25 @@ class LocalStore {
     player.claimedBy = this.uid;
     player.claimedAt = nowIso();
     this.write(code, data);
+  }
+
+  async registerPlayer(code, name) {
+    const playerName = normalizePlayerName(name);
+    if (!playerName) throw new Error('Enter a player name first.');
+    const data = this.read(code);
+    if (!data) throw new Error('Game not found.');
+    const owned = data.players.find((player) => player.active !== false && player.claimedBy === this.uid);
+    if (owned) return owned.id;
+    const slot = data.players.find((player) => player.active === false && !player.claimedBy);
+    if (!slot) throw new Error('Registration is closed. All 10 player spots are taken.');
+    Object.assign(slot, {
+      name: playerName,
+      active: true,
+      claimedBy: this.uid,
+      claimedAt: nowIso(),
+    });
+    this.write(code, data);
+    return slot.id;
   }
 
   async releasePlayer(code, playerId) {
@@ -225,28 +229,6 @@ class LocalStore {
       eventDate: payload.eventDate || '',
       theme: payload.theme || '',
     });
-
-    const existingPlayers = new Map(data.players.map((player) => [player.id, player]));
-    data.players = payload.players.map((player, index) => ({
-      ...(existingPlayers.get(player.id) || {}),
-      id: player.id || makeId(),
-      name: String(player.name || '').trim(),
-      order: index,
-      active: true,
-      bonusPoints: Number(player.bonusPoints || existingPlayers.get(player.id)?.bonusPoints || 0),
-      tastingProgress: 0,
-      tastingComplete: false,
-      tastingCompletedLetters: [],
-      tastingNotesByLetter: {},
-      higherLowerProgress: 0,
-      higherLowerComplete: false,
-      higherLowerCompletedLetters: [],
-      easterEggCompleted: false,
-      easterEggCompletedStage: null,
-    })).filter((player) => player.name);
-
-    const retainedPlayerIds = new Set(data.players.map((player) => player.id));
-    data.responses = data.responses.filter((response) => retainedPlayerIds.has(response.playerId));
 
     const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);
     const oldBottles = new Map(data.bottles.map((bottle) => [bottle.letter, bottle]));
@@ -443,24 +425,10 @@ class FirebaseStore {
       updatedAt: serverTimestamp(),
     });
 
-    (payload.players || []).map((player) => ({ ...player, name: String(player.name || '').trim() })).filter((player) => player.name).forEach((player, index) => {
-      const id = player.id || makeId();
+    createPlayerRegistrationSlots(payload.players).forEach((player) => {
+      const id = player.id;
       batch.set(doc(collection(db, 'games', code, 'players'), id), {
-        id,
-        name: player.name,
-        order: index,
-        active: true,
-        claimedBy: null,
-        bonusPoints: Number(player.bonusPoints || 0),
-        tastingProgress: 0,
-        tastingComplete: false,
-        tastingCompletedLetters: [],
-        tastingNotesByLetter: {},
-        higherLowerProgress: 0,
-        higherLowerComplete: false,
-        higherLowerCompletedLetters: [],
-        easterEggCompleted: false,
-        easterEggCompletedStage: null,
+        ...player,
       });
     });
 
@@ -540,6 +508,39 @@ class FirebaseStore {
     });
   }
 
+  async registerPlayer(code, name) {
+    const playerName = normalizePlayerName(name);
+    if (!playerName) throw new Error('Enter a player name first.');
+    const { db, doc, getDocs, collection, query, orderBy, runTransaction, serverTimestamp } = this.api;
+    code = normalizeCode(code);
+    const playersSnap = await getDocs(query(collection(db, 'games', code, 'players'), orderBy('order')));
+    const owned = playersSnap.docs.find((item) => item.data().active !== false && item.data().claimedBy === this.uid);
+    if (owned) return owned.id;
+    const available = playersSnap.docs.filter((item) => item.data().active === false && !item.data().claimedBy);
+    for (const candidate of available) {
+      try {
+        const registeredId = await runTransaction(db, async (transaction) => {
+          const ref = doc(db, 'games', code, 'players', candidate.id);
+          const snap = await transaction.get(ref);
+          if (!snap.exists() || snap.data().active !== false || snap.data().claimedBy) {
+            throw new Error('REGISTRATION_SLOT_TAKEN');
+          }
+          transaction.update(ref, {
+            name: playerName,
+            active: true,
+            claimedBy: this.uid,
+            claimedAt: serverTimestamp(),
+          });
+          return candidate.id;
+        });
+        return registeredId;
+      } catch (error) {
+        if (error?.message !== 'REGISTRATION_SLOT_TAKEN') throw error;
+      }
+    }
+    throw new Error('Registration is closed. All 10 player spots are taken.');
+  }
+
   async releasePlayer(code, playerId) {
     const { db, doc, updateDoc, deleteField } = this.api;
     await updateDoc(doc(db, 'games', normalizeCode(code), 'players', playerId), {
@@ -583,11 +584,7 @@ class FirebaseStore {
   async saveSetup(code, payload) {
     const { db, doc, getDocs, collection, writeBatch, serverTimestamp } = this.api;
     code = normalizeCode(code);
-    const [playersSnap, bottlesSnap] = await Promise.all([
-      getDocs(collection(db, 'games', code, 'players')),
-      getDocs(collection(db, 'games', code, 'bottles')),
-    ]);
-    const oldPlayers = new Map(playersSnap.docs.map((item) => [item.id, item.data()]));
+    const bottlesSnap = await getDocs(collection(db, 'games', code, 'bottles'));
     const oldBottles = new Map(bottlesSnap.docs.map((item) => [item.id, item.data()]));
     const batch = writeBatch(db);
 
@@ -597,34 +594,6 @@ class FirebaseStore {
       theme: payload.theme || '',
       updatedAt: serverTimestamp(),
     });
-
-    const retainedPlayerIds = new Set();
-    payload.players.map((player) => ({ ...player, name: String(player.name || '').trim() })).filter((player) => player.name).forEach((player, index) => {
-      const id = player.id || makeId();
-      retainedPlayerIds.add(id);
-      const existing = oldPlayers.get(id) || {};
-      batch.set(doc(db, 'games', code, 'players', id), {
-        id,
-        name: player.name,
-        order: index,
-        active: true,
-        claimedBy: existing.claimedBy || null,
-        claimedAt: existing.claimedAt || null,
-        bonusPoints: Number(player.bonusPoints ?? existing.bonusPoints ?? 0),
-        tastingProgress: 0,
-        tastingComplete: false,
-        tastingCompletedLetters: [],
-        tastingNotesByLetter: {},
-        higherLowerProgress: 0,
-        higherLowerComplete: false,
-        higherLowerCompletedLetters: [],
-        easterEggCompleted: false,
-        easterEggCompletedStage: null,
-      });
-    });
-    for (const old of playersSnap.docs) {
-      if (!retainedPlayerIds.has(old.id)) batch.delete(old.ref);
-    }
 
     const retainedLetters = new Set();
     const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);

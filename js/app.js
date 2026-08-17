@@ -1,4 +1,5 @@
-import { createStore, makeId, normalizeCode } from './store.js';
+import { createStore, normalizeCode } from './store.js';
+import { MAX_PLAYERS, PLAYER_NAME_MAX_LENGTH } from './registration.js';
 import {
   BUY_CHOICES,
   HL_CHOICES,
@@ -17,6 +18,7 @@ import {
   createFinalScoreboardEasterEggView,
   createParticipantEasterEggView,
   renderEasterEgg,
+  shouldRenderAfterSnapshot,
 } from './easter-egg.js';
 
 const root = document.querySelector('#app');
@@ -70,7 +72,6 @@ function defaultCreateDraft() {
     title: 'Blind Bourbon Derby',
     eventDate: new Date().toISOString().slice(0, 10),
     theme: 'Tennessee Throwdown',
-    players: Array.from({ length: 6 }, () => ({ id: makeId(), name: '' })),
     bottles: LETTERS.slice(0, 5).map((letter) => ({
       letter,
       name: '',
@@ -120,6 +121,10 @@ function isTextEditing() {
   const active = document.activeElement;
   if (!active) return false;
   return ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) || active.isContentEditable;
+}
+
+function isEasterEggSurpriseOpen() {
+  return Boolean(root.querySelector('.tv-shower-surprise'));
 }
 
 function setSaveStatus(status, message = '') {
@@ -176,8 +181,6 @@ async function loadSnapshot({ silent = false } = {}) {
       if (mine) {
         state.playerId = mine.id;
         storePlayer(state.code, mine.id);
-      } else if (storedPlayer && snapshot.players.some((player) => player.id === storedPlayer && (!player.claimedBy || player.claimedBy === state.store.uid))) {
-        state.playerId = storedPlayer;
       } else {
         state.playerId = null;
         if (storedPlayer) storePlayer(state.code, null);
@@ -185,7 +188,14 @@ async function loadSnapshot({ silent = false } = {}) {
       const activeLetters = snapshot.bottles.filter((bottle) => bottle.active !== false).sort((a, b) => a.order - b.order).map((bottle) => bottle.letter);
       if (!state.currentLetter || !activeLetters.includes(state.currentLetter)) state.currentLetter = activeLetters[0] || null;
     }
-    if (!silent || !isTextEditing()) render();
+    // Keep the third-press reveal mounted until the viewer closes its curtain.
+    // Polling still refreshes state in the background, but replacing the DOM here
+    // would restart the curtain animation every few seconds.
+    if (shouldRenderAfterSnapshot({
+      silent,
+      textEditing: isTextEditing(),
+      surpriseOpen: isEasterEggSurpriseOpen(),
+    })) render();
   } finally {
     state.polling = false;
   }
@@ -349,7 +359,7 @@ function renderHome() {
             <img src="./assets/moose.webp" alt="Cartoon moose mascot holding a bourbon glass">
             <div>
               <h2>Your wife runs the show.</h2>
-              <p>She adds the players, loads the secret bottle details, controls each round, reveals the bourbons, and watches the leaderboard update.</p>
+              <p>She loads the secret bottle details, opens registration, controls each round, reveals the bourbons, and watches the leaderboard update.</p>
               <button class="btn btn-red" data-action="show-create">Build the Game</button>
             </div>
           </div>`}
@@ -373,19 +383,9 @@ function renderCreateForm() {
         </label>
       </div>
 
-      <div class="setup-section">
-        <div class="section-heading">
-          <div><span class="kicker">Up to 10</span><h3>Players</h3></div>
-          <button type="button" class="btn btn-small btn-navy" data-action="add-create-player" ${disabled(draft.players.length >= 10)}>+ Add Player</button>
-        </div>
-        <div class="name-grid">
-          ${draft.players.map((player, index) => `
-            <div class="name-entry">
-              <span class="number-badge">${index + 1}</span>
-              <input data-create-player="${index}" value="${esc(player.name)}" placeholder="Player ${index + 1} name" aria-label="Player ${index + 1} name">
-              ${draft.players.length > 2 ? `<button type="button" class="icon-btn" title="Remove player" data-action="remove-create-player" data-index="${index}">×</button>` : ''}
-            </div>`).join('')}
-        </div>
+      <div class="setup-section registration-explainer">
+        <div><span class="kicker">10 open spots</span><h3>Players register themselves</h3></div>
+        <p>Once the game is created, put the scoreboard on the TV. Your buddies scan its QR code, invent their own names, and claim a player card. Registration closes automatically when all ${MAX_PLAYERS} spots are filled.</p>
       </div>
 
       <div class="setup-section">
@@ -443,34 +443,42 @@ function renderPlayerRoute() {
   }
   if (state.playerId) {
     const player = state.snapshot.players.find((item) => item.id === state.playerId);
-    if (player && (!player.claimedBy || player.claimedBy === state.store.uid)) return renderPlayerCard(player);
+    if (player?.claimedBy === state.store.uid) return renderPlayerCard(player);
   }
   return renderJoinGame();
 }
 
 function renderJoinGame() {
   const { game, players } = state.snapshot;
-  const available = players.filter((player) => !player.claimedBy || player.claimedBy === state.store.uid);
+  const registered = players.filter((player) => player.active !== false && player.name);
+  const openSlots = players.filter((player) => player.active === false && !player.claimedBy);
+  const releasedCards = registered.filter((player) => !player.claimedBy);
   return `
-    ${renderGameMasthead(game, 'Choose your player card')}
+    ${renderGameMasthead(game, 'Register your player card')}
     <section class="join-layout">
       <article class="paper-panel ink-frame join-panel">
         <div class="ribbon-title"><span>Step Right Up</span></div>
         <div class="moose-corner"><img src="./assets/moose.webp" alt="Derby moose mascot"></div>
-        <p class="lead">Pick your own name. That card will stay attached to this phone for the rest of the game.</p>
-        <form data-form="claim-player" class="claim-form">
-          <label>Your Name
-            <select name="playerId" required>
-              <option value="">Select your name…</option>
-              ${players.map((player) => `
-                <option value="${esc(player.id)}" ${disabled(player.claimedBy && player.claimedBy !== state.store.uid)}>
-                  ${esc(player.name)}${player.claimedBy && player.claimedBy !== state.store.uid ? ' — already claimed' : ''}
-                </option>`).join('')}
-            </select>
-          </label>
-          <button class="btn btn-red btn-xl" type="submit" ${disabled(!available.length)}>Open My Player Card</button>
-        </form>
-        ${!available.length ? `<p class="status-callout warning">Every card is currently claimed. Ask the facilitator to release yours.</p>` : ''}
+        <p class="lead">Write your own name—good decisions are optional. Your card stays attached to this phone for the rest of the game.</p>
+        <div class="registration-count"><strong>${registered.length}</strong><span>of ${MAX_PLAYERS} player spots filled</span></div>
+        ${openSlots.length ? `
+          <form data-form="register-player" class="claim-form">
+            <label>Your Name
+              <input name="playerName" maxlength="${PLAYER_NAME_MAX_LENGTH}" autocomplete="nickname" placeholder="Make it funny…" required>
+            </label>
+            <button class="btn btn-red btn-xl" type="submit">Register & Open My Card</button>
+          </form>` : `
+          <p class="status-callout warning"><strong>Registration is closed.</strong> All ${MAX_PLAYERS} player spots are taken.</p>`}
+        ${releasedCards.length ? `
+          <form data-form="claim-player" class="claim-form reclaim-form">
+            <label>Reclaim a released card
+              <select name="playerId" required>
+                <option value="">Select the name…</option>
+                ${releasedCards.map((player) => `<option value="${esc(player.id)}">${esc(player.name)}</option>`).join('')}
+              </select>
+            </label>
+            <button class="btn btn-navy" type="submit">Reclaim My Card</button>
+          </form>` : ''}
         <div class="join-links">
           ${isHost() ? `<button class="btn btn-navy" data-action="open-host">Open Facilitator Booth</button>` : ''}
           ${phaseAtLeast(game.phase, 'reveal') ? `<button class="btn btn-gold" data-action="open-scoreboard">Watch the Scoreboard</button>` : ''}
@@ -693,7 +701,7 @@ function renderHost() {
     </section>
     <nav class="host-tabs">
       <button class="${state.hostTab === 'control' ? 'active' : ''}" data-action="host-tab" data-tab="control">Game Control</button>
-      <button class="${state.hostTab === 'setup' ? 'active' : ''}" data-action="host-tab" data-tab="setup">Players & Bottles</button>
+      <button class="${state.hostTab === 'setup' ? 'active' : ''}" data-action="host-tab" data-tab="setup">Event & Bottles</button>
       <button class="${state.hostTab === 'results' ? 'active' : ''}" data-action="host-tab" data-tab="results">Live Results</button>
     </nav>
     ${state.hostTab === 'setup' ? renderHostSetup() : state.hostTab === 'results' ? renderScoreboardBody(true) : renderHostControl()}`;
@@ -705,7 +713,6 @@ function makeHostDraft(snapshot) {
     title: snapshot.game.title || 'Blind Bourbon Derby',
     eventDate: snapshot.game.eventDate || '',
     theme: snapshot.game.theme || '',
-    players: snapshot.players.map((player) => ({ ...player })),
     bottles: LETTERS.map((letter, index) => {
       const bottle = snapshot.bottles.find((item) => item.letter === letter);
       const detail = details[letter] || {};
@@ -835,19 +842,9 @@ function renderHostSetup() {
           <label>Theme<input name="theme" value="${esc(draft.theme)}"></label>
         </div>
 
-        <div class="setup-section">
-          <div class="section-heading">
-            <div><span class="kicker">Up to 10</span><h3>Players</h3></div>
-            <button type="button" class="btn btn-small btn-navy" data-action="add-host-player" ${disabled(draft.players.length >= 10)}>+ Add Player</button>
-          </div>
-          <div class="name-grid">
-            ${draft.players.map((player, index) => `
-              <div class="name-entry">
-                <span class="number-badge">${index + 1}</span>
-                <input data-host-player="${index}" data-player-id="${esc(player.id)}" value="${esc(player.name)}" placeholder="Player name">
-                <button type="button" class="icon-btn" title="Remove player" data-action="remove-host-player" data-index="${index}">×</button>
-              </div>`).join('')}
-          </div>
+        <div class="setup-section registration-explainer compact">
+          <div><span class="kicker">QR self-registration</span><h3>Players manage their own names</h3></div>
+          <p>${state.snapshot.players.filter((player) => player.active !== false).length} of ${MAX_PLAYERS} spots are filled. Use the Player Status panel to release a card if somebody needs to register again.</p>
         </div>
 
         <div class="setup-section">
@@ -867,7 +864,7 @@ function renderHostSetup() {
         </div>
 
         <div class="form-actions sticky-actions">
-          <button class="btn btn-red btn-xl" type="submit">Save Players & Bottles</button>
+          <button class="btn btn-red btn-xl" type="submit">Save Event & Bottles</button>
           <button class="btn btn-ghost" type="button" data-action="host-tab" data-tab="control">Cancel</button>
         </div>
       </form>
@@ -989,10 +986,6 @@ function syncCreateDraftFromForm() {
   state.createDraft.title = form.elements.title?.value || '';
   state.createDraft.eventDate = form.elements.eventDate?.value || '';
   state.createDraft.theme = form.elements.theme?.value || '';
-  form.querySelectorAll('[data-create-player]').forEach((input) => {
-    const index = Number(input.dataset.createPlayer);
-    if (state.createDraft.players[index]) state.createDraft.players[index].name = input.value;
-  });
   form.querySelectorAll('[data-create-bottle]').forEach((input) => {
     const index = Number(input.dataset.createBottle);
     const field = input.dataset.field;
@@ -1006,10 +999,6 @@ function syncHostDraftFromForm() {
   state.hostDraft.title = form.elements.title?.value || '';
   state.hostDraft.eventDate = form.elements.eventDate?.value || '';
   state.hostDraft.theme = form.elements.theme?.value || '';
-  form.querySelectorAll('[data-host-player]').forEach((input) => {
-    const index = Number(input.dataset.hostPlayer);
-    if (state.hostDraft.players[index]) state.hostDraft.players[index].name = input.value;
-  });
   form.querySelectorAll('[data-host-bottle]').forEach((input) => {
     const index = Number(input.dataset.hostBottle);
     const field = input.dataset.field;
@@ -1075,11 +1064,13 @@ root.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'dismiss-easter-egg') {
-    const surface = state.view === 'scoreboard' ? 'scoreboard' : 'player';
-    const phase = state.snapshot?.game?.phase;
-    const playerId = surface === 'player' ? state.playerId : '';
+    const surprise = button.closest('.tv-shower-surprise');
+    const surface = surprise?.dataset.easterSurface || (state.view === 'scoreboard' ? 'scoreboard' : 'player');
+    const phase = surprise?.dataset.easterPhase || state.snapshot?.game?.phase;
+    const playerId = surface === 'player' ? (surprise?.dataset.easterPlayerId || state.playerId) : '';
     if (!phase || (surface === 'player' && !playerId)) return;
     getEasterEggSession(surface, phase, playerId).dismissed = true;
+    surprise?.remove();
     render();
     return;
   }
@@ -1096,18 +1087,6 @@ root.addEventListener('click', async (event) => {
   }
   if (action === 'show-join') {
     state.homePanel = 'join';
-    render();
-    return;
-  }
-  if (action === 'add-create-player') {
-    syncCreateDraftFromForm();
-    if (state.createDraft.players.length < 10) state.createDraft.players.push({ id: makeId(), name: '' });
-    render();
-    return;
-  }
-  if (action === 'remove-create-player') {
-    syncCreateDraftFromForm();
-    state.createDraft.players.splice(Number(button.dataset.index), 1);
     render();
     return;
   }
@@ -1184,18 +1163,6 @@ root.addEventListener('click', async (event) => {
     if (state.hostTab === 'setup') syncHostDraftFromForm();
     state.hostTab = button.dataset.tab;
     if (state.hostTab === 'setup' && !state.hostDraft) state.hostDraft = makeHostDraft(state.snapshot);
-    render();
-    return;
-  }
-  if (action === 'add-host-player') {
-    syncHostDraftFromForm();
-    if (state.hostDraft.players.length < 10) state.hostDraft.players.push({ id: makeId(), name: '', claimedBy: null, bonusPoints: 0 });
-    render();
-    return;
-  }
-  if (action === 'remove-host-player') {
-    syncHostDraftFromForm();
-    state.hostDraft.players.splice(Number(button.dataset.index), 1);
     render();
     return;
   }
@@ -1279,16 +1246,24 @@ root.addEventListener('submit', async (event) => {
     return;
   }
 
+  if (type === 'register-player') {
+    const playerName = new FormData(form).get('playerName');
+    await safeAction(async () => {
+      const playerId = await state.store.registerPlayer(state.code, playerName);
+      state.playerId = playerId;
+      storePlayer(state.code, playerId);
+      await loadSnapshot();
+      toast('You are registered. Let the questionable decisions begin.');
+    });
+    return;
+  }
+
   if (type === 'create-game') {
     syncCreateDraftFromForm();
-    const players = state.createDraft.players.map((player) => ({ ...player, name: player.name.trim() })).filter((player) => player.name);
     const bottles = activeBottlesFromDraft(state.createDraft.bottles);
-    const duplicatePlayers = players.some((player, index) => players.findIndex((other) => other.name.toLowerCase() === player.name.toLowerCase()) !== index);
-    if (players.length < 2) { toast('Add at least two player names.', 'error'); return; }
     if (bottles.length < 2) { toast('Add at least two bottles.', 'error'); return; }
-    if (duplicatePlayers) { toast('Player names need to be unique.', 'error'); return; }
     await safeAction(async () => {
-      const code = await state.store.createGame({ ...state.createDraft, players, bottles });
+      const code = await state.store.createGame({ ...state.createDraft, bottles });
       state.hostDraft = null;
       navigate({ code, view: 'host' });
     }, { busyText: 'Creating the derby…' });
@@ -1297,17 +1272,14 @@ root.addEventListener('submit', async (event) => {
 
   if (type === 'host-setup') {
     syncHostDraftFromForm();
-    const players = state.hostDraft.players.map((player) => ({ ...player, name: player.name.trim() })).filter((player) => player.name);
     const bottles = activeBottlesFromDraft(state.hostDraft.bottles);
-    if (players.length < 2 || bottles.length < 2) { toast('Keep at least two players and two active bottles.', 'error'); return; }
-    const duplicatePlayers = players.some((player, index) => players.findIndex((other) => other.name.toLowerCase() === player.name.toLowerCase()) !== index);
-    if (duplicatePlayers) { toast('Player names need to be unique.', 'error'); return; }
+    if (bottles.length < 2) { toast('Keep at least two active bottles.', 'error'); return; }
     await safeAction(async () => {
-      await state.store.saveSetup(state.code, { ...state.hostDraft, players, bottles });
+      await state.store.saveSetup(state.code, { ...state.hostDraft, bottles });
       state.hostDraft = null;
       state.hostTab = 'control';
       await loadSnapshot();
-      toast('Players and bottles saved.');
+      toast('Event and bottles saved.');
     });
   }
 });

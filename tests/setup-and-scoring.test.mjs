@@ -10,9 +10,16 @@ import {
   createParticipantEasterEggView,
   participantEasterEggTarget,
   renderEasterEgg,
+  shouldRenderAfterSnapshot,
 } from '../js/easter-egg.js';
 import { calculateGame, summarizePlayerProgress } from '../js/scoring.js';
 import { renderTvScoreboard, scoreboardStage } from '../js/scoreboard.js';
+import {
+  MAX_PLAYERS,
+  PLAYER_NAME_MAX_LENGTH,
+  createPlayerRegistrationSlots,
+  normalizePlayerName,
+} from '../js/registration.js';
 import { activeBottlesFromDraft } from '../js/setup.js';
 import {
   REVEAL_TASTING_NOTE_MAX_LENGTH,
@@ -289,6 +296,9 @@ test('the third press opens the shower surprise and dismissal persists until a n
   assert.match(html, /class="tv-shower-surprise surface-player"/);
   assert.match(html, /role="dialog"/);
   assert.match(html, /aria-modal="true"/);
+  assert.match(html, /data-easter-surface="player"/);
+  assert.match(html, /data-easter-phase="tasting"/);
+  assert.match(html, /data-easter-player-id="p1"/);
   assert.match(html, /class="tv-shower-surprise-curtain"/);
   assert.match(html, /class="tv-shower-surprise-image"/);
   assert.match(html, /class="tv-shower-surprise-dismiss"/);
@@ -313,6 +323,23 @@ test('the third press opens the shower surprise and dismissal persists until a n
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   assert.match(appSource, /easterEggSessions: new Map\(\)/);
   assert.match(appSource, /state\.store\.completeEasterEgg\(state\.code, playerId, phase\)/);
+  assert.match(appSource, /function isEasterEggSurpriseOpen\(\)/);
+  assert.match(appSource, /shouldRenderAfterSnapshot\(\{/);
+  assert.match(appSource, /button\.closest\('\.tv-shower-surprise'\)/);
+  assert.match(appSource, /surprise\?\.remove\(\)/);
+});
+
+test('silent polling keeps the shower reveal mounted until its curtain is closed', () => {
+  assert.equal(shouldRenderAfterSnapshot({ silent: false, surpriseOpen: true }), true);
+  assert.equal(shouldRenderAfterSnapshot({ silent: true, textEditing: true }), false);
+  assert.equal(shouldRenderAfterSnapshot({ silent: true, surpriseOpen: true }), false);
+  assert.equal(shouldRenderAfterSnapshot({ silent: true, surpriseOpen: false, textEditing: false }), true);
+
+  let renderCount = 1;
+  for (let poll = 0; poll < 4; poll += 1) {
+    if (shouldRenderAfterSnapshot({ silent: true, surpriseOpen: true })) renderCount += 1;
+  }
+  assert.equal(renderCount, 1, 'The open shower dialog must survive repeated polling cycles');
 });
 
 test('the host results embed has no Easter-egg renderer or controls', () => {
@@ -566,6 +593,58 @@ test('portrait scoreboards center the King Moose without changing the TV layout'
   assert.match(portraitStyles, /object-position:\s*center/);
 });
 
+test('new games reserve exactly 10 hidden self-registration slots', () => {
+  const slots = createPlayerRegistrationSlots();
+  assert.equal(MAX_PLAYERS, 10);
+  assert.equal(slots.length, MAX_PLAYERS);
+  assert.deepEqual(slots.map((player) => player.id), Array.from({ length: 10 }, (_, index) => `player-${String(index + 1).padStart(2, '0')}`));
+  assert.ok(slots.every((player) => player.active === false && player.name === '' && player.claimedBy === null));
+
+  const legacyCompatible = createPlayerRegistrationSlots([{ id: 'old-player', name: '  Captain   Bad Decisions  ' }]);
+  assert.equal(legacyCompatible[0].id, 'old-player');
+  assert.equal(legacyCompatible[0].name, 'Captain Bad Decisions');
+  assert.equal(legacyCompatible[0].active, true);
+  assert.equal(legacyCompatible.filter((player) => player.active !== false).length, 1);
+  assert.equal(normalizePlayerName('x'.repeat(PLAYER_NAME_MAX_LENGTH + 20)).length, PLAYER_NAME_MAX_LENGTH);
+});
+
+test('setup removes host-entered names and the join screen owns registration', () => {
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const storeSource = readFileSync(new URL('../js/store.js', import.meta.url), 'utf8');
+  const rulesSource = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+
+  assert.match(appSource, /data-form="register-player"/);
+  assert.match(appSource, /name="playerName"/);
+  assert.match(appSource, /Registration is closed/);
+  assert.doesNotMatch(appSource, /data-create-player|data-host-player|add-create-player|add-host-player/);
+  assert.match(storeSource, /async registerPlayer\(code, name\)/);
+  assert.match(storeSource, /runTransaction\(db/);
+  assert.match(storeSource, /Registration is closed\. All 10 player spots are taken/);
+  assert.match(rulesSource, /resource\.data\.active == false[\s\S]*request\.resource\.data\.active == true/);
+  assert.match(rulesSource, /request\.resource\.data\.name\.size\(\) <= 48/);
+  assert.match(rulesSource, /affectedKeys\(\)\.hasOnly\(\[[\s\S]*'name'[\s\S]*'active'[\s\S]*'claimedBy'[\s\S]*'claimedAt'/);
+});
+
+test('the lobby advertises self-registration and excludes hidden slots', () => {
+  const snapshot = {
+    game: { code: 'JOIN10', title: 'Funny Name Derby', phase: 'setup' },
+    players: createPlayerRegistrationSlots([{ name: 'Whiskey Business', claimedBy: 'uid-1' }]),
+    bottles: [],
+    details: {},
+    responses: [],
+  };
+  const html = renderTvScoreboard({
+    snapshot,
+    calc: calculateGame(snapshot),
+    joinUrl: 'https://example.test/?game=JOIN10',
+    qrUrl: 'https://example.test/qr.svg',
+  });
+  assert.match(html, /1<\/strong><span>of 10 player spots filled/);
+  assert.match(html, /Whiskey Business/);
+  assert.match(html, /invent a ridiculous name/i);
+  assert.doesNotMatch(html, /player-02/);
+});
+
 test('participant completion is shared on the player card and reset with the game', () => {
   const storeSource = readFileSync(new URL('../js/store.js', import.meta.url), 'utf8');
   const rulesSource = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
@@ -588,6 +667,7 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   for (const asset of [
     './js/easter-egg.js',
     './js/tasting-notes.js',
+    './js/registration.js',
     './assets/moose-bourbon-creek.webp',
     './assets/moose-moonshiner.webp',
     './assets/moose-game-show-host.webp',
@@ -597,7 +677,7 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v12-tasting-notes'/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v14-self-registration'/);
   assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v11-phone-king-centering/);
   const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
   const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);

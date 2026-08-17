@@ -86,6 +86,25 @@ service cloud.firestore {
           signedIn()
           && (
             (
+              resource.data.active == false
+              && resource.data.name == ''
+              && resource.data.claimedBy == null
+              && request.resource.data.active == true
+              && request.resource.data.name is string
+              && request.resource.data.name.size() >= 1
+              && request.resource.data.name.size() <= 48
+              && request.resource.data.claimedBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'name',
+                'active',
+                'claimedBy',
+                'claimedAt'
+              ])
+            )
+            ||
+            (
+              resource.data.active == true
+              &&
               request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy', 'claimedAt'])
               && (
                 (resource.data.claimedBy == null && request.resource.data.claimedBy == request.auth.uid)

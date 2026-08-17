@@ -4,7 +4,7 @@
   const playerStorageKey = (code) => `blind-bourbon-derby::player::${String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)}`;
 
   document.addEventListener('submit', (event) => {
-    const form = event.target.closest?.('form[data-form="claim-player"]');
+    const form = event.target.closest?.('form[data-form="claim-player"], form[data-form="register-player"]');
     if (!form) return;
 
     const button = form.querySelector('button[type="submit"]');
@@ -15,9 +15,10 @@
     }
 
     if (button) {
+      button.dataset.originalText = button.textContent;
       button.dataset.claimBusy = '1';
       button.disabled = true;
-      button.textContent = 'Opening Player Card…';
+      button.textContent = form.dataset.form === 'register-player' ? 'Registering Player…' : 'Opening Player Card…';
     }
 
     const code = new URLSearchParams(location.search).get('game');
@@ -26,7 +27,7 @@
     const timer = setInterval(() => {
       tries += 1;
       const claimedPlayerId = localStorage.getItem(key);
-      const claimFormStillVisible = document.querySelector('form[data-form="claim-player"]');
+      const claimFormStillVisible = document.querySelector('form[data-form="claim-player"], form[data-form="register-player"]');
 
       if (claimedPlayerId && claimFormStillVisible) {
         clearInterval(timer);
@@ -39,7 +40,7 @@
         if (button && document.contains(button)) {
           button.dataset.claimBusy = '0';
           button.disabled = false;
-          button.textContent = 'Open My Player Card';
+          button.textContent = button.dataset.originalText || 'Open My Player Card';
         }
       }
     }, 150);
