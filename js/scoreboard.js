@@ -1,6 +1,7 @@
 import { PHASES, formatMoney, formatNumber } from './scoring.js';
 import { renderEasterEgg } from './easter-egg.js';
 import { selectRevealTastingNotes, tastingNotePreview } from './tasting-notes.js';
+import { MAX_PLAYERS } from './registration.js';
 
 const esc = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -63,19 +64,17 @@ function renderStage(stage, game, calc) {
 }
 
 function renderLobbyStage(calc) {
-  const joined = calc.players.filter((player) => player.claimedBy).length;
+  const joined = calc.players.length;
   return `
     <section class="tv-stage tv-lobby-stage">
       <div class="tv-lobby-copy">
         <span class="tv-neon-kicker">Live from the bourbon basement</span>
         <h1>Come on down,<br>you magnificent idiots.</h1>
-        <p>Scan the code, claim your contestant card, and try not to embarrass your palate.</p>
-        <div class="tv-lobby-count"><strong>${joined}</strong><span>of ${calc.players.length} contestants checked in</span></div>
+        <p>Scan the code, invent a ridiculous name, and register your own contestant card.</p>
+        <div class="tv-lobby-count"><strong>${joined}</strong><span>of ${MAX_PLAYERS} player spots filled</span></div>
         <div class="tv-contestant-strip">
-          ${calc.players.map((player) => `
-            <div class="${player.claimedBy ? 'is-joined' : ''}">
-              <span>${player.claimedBy ? '★' : '○'}</span><strong>${esc(player.name)}</strong>
-            </div>`).join('')}
+          ${calc.players.length ? calc.players.map((player) => `
+            <div class="is-joined"><span>★</span><strong>${esc(player.name)}</strong></div>`).join('') : '<div><span>○</span><strong>Waiting for the first brave idiot…</strong></div>'}
         </div>
       </div>
       <img class="tv-lobby-moose" src="./assets/moose-moonshiner.webp" alt="The Drunk Moose moonshiner welcomes contestants beside his copper still">

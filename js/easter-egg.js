@@ -86,6 +86,8 @@ export function createParticipantEasterEggView({
   );
   return {
     ...view,
+    phase,
+    playerId,
     targetPlayerId: target?.id || null,
     eligible: !view.dismissed && isTarget && (!completedBy || isLocalCompleter),
   };
@@ -95,6 +97,8 @@ export function createFinalScoreboardEasterEggView({ phase, presses = 0, dismiss
   const view = baseView({ presses, dismissed, surface: 'scoreboard', placement: 'qr' });
   return {
     ...view,
+    phase,
+    playerId: '',
     eligible: !view.dismissed && phase === 'final',
   };
 }
@@ -103,12 +107,16 @@ export function advanceEasterEggPresses(presses) {
   return Math.min(3, normalizedPresses(presses) + 1);
 }
 
+export function shouldRenderAfterSnapshot({ silent = false, textEditing = false, surpriseOpen = false } = {}) {
+  return !silent || (!textEditing && !surpriseOpen);
+}
+
 export function renderEasterEgg(view) {
   if (!view?.eligible) return '';
   const surface = view.surface === 'player' ? 'player' : 'scoreboard';
   if (view.showSurprise) {
     return `
-      <section class="tv-shower-surprise surface-${surface}" role="dialog" aria-modal="true" aria-label="The forbidden shower surprise">
+      <section class="tv-shower-surprise surface-${surface}" role="dialog" aria-modal="true" aria-label="The forbidden shower surprise" data-easter-surface="${surface}" data-easter-phase="${esc(view.phase)}" data-easter-player-id="${esc(view.playerId)}">
         <div class="tv-shower-surprise-curtain" aria-hidden="true"></div>
         <img class="tv-shower-surprise-image" src="./assets/moose-shower-surprise.webp" alt="The X-eyed Drunk Moose is caught in a ridiculous shower with a surprised shower-capped possum and her back scrubber">
         <button type="button" class="tv-shower-surprise-dismiss" data-action="dismiss-easter-egg">Close the curtain</button>
