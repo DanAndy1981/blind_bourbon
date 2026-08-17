@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v15-grand-finale';
+const CACHE_NAME = 'blind-bourbon-derby-v16-bottle-awards';
 const APP_SHELL = [
   './',
   './index.html',
@@ -23,6 +23,8 @@ const APP_SHELL = [
   './assets/moose-king.webp',
   './assets/moose-shower-surprise.webp',
   './assets/biggest-loser-poop.webp',
+  './assets/award-honey-badger.webp',
+  './assets/award-burning-money.webp',
   './assets/favicon.png',
   './assets/icon-192.png',
   './assets/icon-512.png',

@@ -1,8 +1,10 @@
 const SCENES = new Set(['bottles', 'players', 'awards']);
 const CUE_TYPES = new Set([
   'bottle',
-  'valueChampion',
   'biggestUpset',
+  'biggestDisappointment',
+  // Kept only so a pre-update game can finish an already queued animation.
+  'valueChampion',
   'player',
   'savant',
   'biggestLoser',
@@ -13,8 +15,8 @@ export function emptyFinaleState() {
   return {
     scene: 'bottles',
     revealedPlayerIds: [],
-    valueChampionRevealed: false,
     biggestUpsetRevealed: false,
+    biggestDisappointmentRevealed: false,
     savantRevealed: false,
     biggestLoserRevealed: false,
     finalBoardRevealed: false,
@@ -37,8 +39,8 @@ export function normalizeFinaleState(game = {}, { legacyFinalOpen = true } = {})
       ...emptyFinaleState(),
       scene: 'awards',
       legacyOpen: true,
-      valueChampionRevealed: true,
       biggestUpsetRevealed: true,
+      biggestDisappointmentRevealed: true,
       savantRevealed: true,
       biggestLoserRevealed: true,
       finalBoardRevealed: true,
@@ -50,8 +52,10 @@ export function normalizeFinaleState(game = {}, { legacyFinalOpen = true } = {})
     ...base,
     scene: SCENES.has(raw?.scene) ? raw.scene : base.scene,
     revealedPlayerIds: cleanIds(raw?.revealedPlayerIds),
-    valueChampionRevealed: Boolean(raw?.valueChampionRevealed),
-    biggestUpsetRevealed: Boolean(raw?.biggestUpsetRevealed),
+    // The retired Value Champion was the original best-value reveal. Carry it
+    // forward as the renamed Biggest Upset for games already in progress.
+    biggestUpsetRevealed: Boolean(raw?.biggestUpsetRevealed || raw?.valueChampionRevealed),
+    biggestDisappointmentRevealed: Boolean(raw?.biggestDisappointmentRevealed),
     savantRevealed: Boolean(raw?.savantRevealed),
     biggestLoserRevealed: Boolean(raw?.biggestLoserRevealed),
     finalBoardRevealed: Boolean(raw?.finalBoardRevealed),
@@ -88,8 +92,8 @@ export function fullFinaleState(game, players = []) {
   return nextFinaleState(game, {
     scene: 'awards',
     revealedPlayerIds: players.map((player) => player.id),
-    valueChampionRevealed: true,
     biggestUpsetRevealed: true,
+    biggestDisappointmentRevealed: true,
     savantRevealed: true,
     biggestLoserRevealed: true,
     finalBoardRevealed: true,
