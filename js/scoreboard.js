@@ -88,7 +88,7 @@ function renderTastingStage(calc) {
         ${calc.playerResults.map((player, index) => renderPlayerProgress(player, letters, index)).join('')}
       </div>
       <aside class="tv-tasting-rail">
-        <img src="./assets/moose-bourbon-creek.webp" alt="The Drunk Moose stands in a creek of bourbon and licks it as it spills from a copper still">
+        <img src="./assets/moose-bourbon-creek.webp" alt="The same X-eyed Drunk Moose in his tasting clothes licks bourbon flowing from the copper still">
         <div class="tv-ready-counter"><strong>${ready}<small>/ ${calc.playerResults.length}</small></strong><span>Palates locked</span></div>
         <p>${ready === calc.playerResults.length && ready ? 'Every glass is scored. Somebody ring the bell.' : 'Scores move live as every mystery glass gets finished.'}</p>
       </aside>
@@ -98,22 +98,15 @@ function renderTastingStage(calc) {
 function renderPlayerProgress(player, letters, index) {
   const completed = new Set(player.tastingCompletedLetters || []);
   const percent = boundedPercent(player.tastingProgress);
-  const mood = progressBottleMood(percent);
   return `
     <article class="tv-player-progress ${player.tastingComplete ? 'is-ready' : ''}" style="--player-index:${index}">
       <div class="tv-player-heading"><span>${index + 1}</span><strong>${esc(player.name)}</strong><b>${player.tastingComplete ? 'LOCKED' : `${percent}%`}</b></div>
       <div class="tv-glass-pips" aria-label="${percent}% complete">
         ${letters.map((letter) => `<span class="${completed.has(letter) ? 'is-done' : ''}">${esc(letter)}</span>`).join('')}
       </div>
-      <div class="tv-progress-bottle ${mood}" style="--bottle-fill:${percent}%" role="progressbar" aria-label="${esc(player.name)} tasting progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-valuetext="${percent}% complete">
-        <span class="tv-progress-bottle-liquid" aria-hidden="true"></span>
-        <span class="tv-progress-bottle-face" aria-hidden="true">
-          <span class="tv-progress-bottle-eyes"><i></i><i></i></span>
-          <span class="tv-progress-bottle-mouth"></span>
-        </span>
-        <span class="tv-progress-bottle-arms" aria-hidden="true"><i></i><i></i></span>
-        <span class="tv-progress-bottle-legs" aria-hidden="true"><i></i><i></i></span>
-        <strong class="tv-progress-bottle-value">${percent}%</strong>
+      <div class="tv-tasting-progress" style="--tasting-progress:${percent}%" role="progressbar" aria-label="${esc(player.name)} tasting progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-valuetext="${percent}% complete">
+        <span class="tv-tasting-progress-track" aria-hidden="true"><i></i></span>
+        <strong class="tv-tasting-progress-value">${percent}%</strong>
       </div>
       <small>${player.tastingComplete ? 'Ready for the next round' : 'Nosing · guessing · making things up'}</small>
     </article>`;
@@ -149,10 +142,20 @@ function renderHigherLowerStage(game, calc) {
 function renderHigherLowerBottle(bottle, averages = {}, players) {
   const locked = players.filter((player) => (player.higherLowerCompletedLetters || []).includes(bottle.letter)).length;
   const fill = players.length ? Math.round((locked / players.length) * 100) : 0;
+  const mood = progressBottleMood(fill);
   return `
     <article class="tv-hl-bottle-card">
       <div class="tv-sample-letter">${esc(bottle.letter)}</div>
-      <div class="tv-bottle-gauge" aria-hidden="true"><i style="height:${Math.max(12, fill)}%"></i></div>
+      <div class="tv-drunk-bottle ${mood}" style="--bottle-fill:${fill}%" role="progressbar" aria-label="Sample ${esc(bottle.letter)} crowd lock-in progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${fill}" aria-valuetext="${locked} of ${players.length} crowd cards locked, ${fill}%">
+        <span class="tv-drunk-bottle-liquid" aria-hidden="true"></span>
+        <span class="tv-drunk-bottle-face" aria-hidden="true">
+          <span class="tv-drunk-bottle-eyes"><i></i><i></i></span>
+          <span class="tv-drunk-bottle-mouth"></span>
+        </span>
+        <span class="tv-drunk-bottle-arms" aria-hidden="true"><i></i><i></i></span>
+        <span class="tv-drunk-bottle-legs" aria-hidden="true"><i></i><i></i></span>
+        <strong class="tv-drunk-bottle-value">${fill}%</strong>
+      </div>
       <div class="tv-hl-values">
         <span><small>Club price guess</small>${formatMoney(averages?.price, 0)}</span>
         <span><small>Club proof guess</small>${formatNumber(averages?.proof, 0)}°</span>
@@ -215,7 +218,7 @@ function renderFinalStage(calc) {
           <h2>${winners.length ? esc(playerNames(winners)) : 'No winner yet'}</h2>
           <strong>${winningScore} points</strong>
           <p>${winners.length > 1 ? 'A dead heat at the top of the barrel.' : 'Tonight’s least-questionable palate.'}</p>
-          <div class="tv-savant-star" aria-hidden="true">★</div>
+          <img class="tv-king-moose" src="./assets/moose-king.webp" alt="The same blind-drunk X-eyed Moose crowned king while bourbon bubbles float around him">
         </article>
         <article class="tv-final-award is-loser" data-award="biggest-loser">
           <img src="./assets/biggest-loser-poop.webp" alt="A rubber-hose cartoon poop pile steaming while flies buzz around it">

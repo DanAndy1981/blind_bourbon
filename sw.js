@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v7-moonshiner-progress';
+const CACHE_NAME = 'blind-bourbon-derby-v8-character-consistency';
 const APP_SHELL = [
   './',
   './index.html',
@@ -16,6 +16,7 @@ const APP_SHELL = [
   './assets/moose-bourbon-creek.webp',
   './assets/moose-moonshiner.webp',
   './assets/moose-game-show-host.webp',
+  './assets/moose-king.webp',
   './assets/biggest-loser-poop.webp',
   './assets/favicon.png',
   './assets/icon-192.png',
