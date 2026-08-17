@@ -1,8 +1,9 @@
-const CACHE_NAME = 'blind-bourbon-derby-v17-drunk-rules';
+const CACHE_NAME = 'blind-bourbon-derby-v18-strengthening-pass';
 const APP_SHELL = [
   './',
   './index.html',
   './css/styles.css',
+  './css/tv-legibility.css',
   './js/app.js',
   './js/claim-guard.js',
   './js/store.js',
@@ -32,8 +33,18 @@ const APP_SHELL = [
   './manifest.webmanifest'
 ];
 
+async function cacheAppShell() {
+  const cache = await caches.open(CACHE_NAME);
+  const results = await Promise.allSettled(APP_SHELL.map((url) => cache.add(url)));
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      console.warn('Could not pre-cache app asset:', APP_SHELL[index], result.reason);
+    }
+  });
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  event.waitUntil(cacheAppShell());
   self.skipWaiting();
 });
 
@@ -49,22 +60,36 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+async function newestCodeOrCache(request) {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    cache.put(request, response.clone());
+    return response;
+  } catch (error) {
+    const cached = await cache.match(request, { ignoreSearch: true });
+    if (cached) return cached;
+    throw error;
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Always pull the newest Firebase configuration when online.
   if (url.pathname.endsWith('/firebase-config.js')) {
-    event.respondWith(fetch(request, { cache: 'no-store' }).catch(() => caches.match(request)));
+    event.respondWith(newestCodeOrCache(request));
     return;
   }
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-store' })
         .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy));
           return response;
@@ -74,31 +99,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Code must update on the first refresh. The old cache-first path could run
-  // a stale scoreboard bundle once more while quietly refreshing it behind the
-  // scenes, which made new TV features look missing.
   const isCodeAsset = url.pathname.endsWith('.js')
     || url.pathname.endsWith('.css')
     || url.pathname.endsWith('.webmanifest');
   if (isCodeAsset) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
-          return response;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith(newestCodeOrCache(request));
     return;
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request).then((response) => {
+    caches.match(request, { ignoreSearch: true }).then((cached) => {
+      if (cached) return cached;
+      return fetch(request).then((response) => {
         if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
         return response;
       });
-      return cached || network;
     })
   );
 });
