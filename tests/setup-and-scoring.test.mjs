@@ -34,6 +34,7 @@ import {
   sanitizeTastingNotesByLetter,
   selectRevealTastingNotes,
 } from '../js/tasting-notes.js';
+import { DRUNK_FRIENDLY_RULES } from '../js/game-rules.js';
 
 function renderTvPhase(phase) {
   const snapshot = {
@@ -181,6 +182,108 @@ test('rank 1 and the highest rank replace manual winner and last-place picks', (
   assert.equal(result.playerResults[0].lastPick, 3);
   assert.equal(result.playerResults[0].tastingProgress, 1);
   assert.equal(result.playerResults[0].tastingComplete, true);
+});
+
+test('published rules match Higher or Lower pushes, shared winners, and every point source', () => {
+  const players = [
+    { id: 'p1', name: 'Push Master', order: 0, active: true },
+    { id: 'p2', name: 'Tie Fighter', order: 1, active: true, bonusPoints: 2 },
+  ];
+  const bottles = ['A', 'B'].map((letter, order) => ({ letter, order, active: true }));
+  const details = {
+    A: { letter: 'A', name: 'Exact Average', retailPrice: 80, proof: 100 },
+    B: { letter: 'B', name: 'Clearly Higher', retailPrice: 70, proof: 105 },
+  };
+  const responses = players.flatMap((player) => [
+    {
+      playerId: player.id, bottleLetter: 'A', buyChoice: 'Hell Yes',
+      priceGuess: 80, proofGuess: 100, finalRank: 1,
+      priceHL: player.id === 'p1' ? 'Higher' : 'Lower',
+      proofHL: player.id === 'p1' ? 'Lower' : 'Higher',
+    },
+    {
+      playerId: player.id, bottleLetter: 'B', buyChoice: 'Maybe',
+      priceGuess: 60, proofGuess: 100, finalRank: 2,
+      priceHL: player.id === 'p1' ? 'Higher' : 'Lower',
+      proofHL: player.id === 'p1' ? 'Higher' : 'Lower',
+    },
+  ]);
+
+  const result = calculateGame({ game: { phase: 'final' }, players, bottles, details, responses });
+  const exact = result.bottleResults.find((bottle) => bottle.letter === 'A');
+  const higher = result.bottleResults.find((bottle) => bottle.letter === 'B');
+  const pushMaster = result.playerResults.find((player) => player.id === 'p1');
+  const tieFighter = result.playerResults.find((player) => player.id === 'p2');
+
+  assert.equal(exact.priceAnswer, 'Push');
+  assert.equal(exact.proofAnswer, 'Push');
+  assert.equal(higher.priceAnswer, 'Higher');
+  assert.equal(higher.proofAnswer, 'Higher');
+  assert.equal(pushMaster.priceHL, 1);
+  assert.equal(pushMaster.proofHL, 1);
+  assert.equal(tieFighter.priceHL, 0);
+  assert.equal(tieFighter.proofHL, 0);
+  assert.equal(pushMaster.priceIsRight, 6);
+  assert.equal(tieFighter.priceIsRight, 6);
+  assert.equal(pushMaster.winnerPick, 5);
+  assert.equal(pushMaster.lastPick, 3);
+  assert.equal(tieFighter.bonus, 2);
+  assert.equal(pushMaster.total, 16);
+  assert.equal(tieFighter.total, 16);
+  assert.equal(pushMaster.rank, 1);
+  assert.equal(tieFighter.rank, 1);
+  assert.deepEqual(result.savants.map((player) => player.id), ['p1', 'p2']);
+
+  const allOver = calculateGame({
+    game: { phase: 'final' },
+    players,
+    bottles: [{ letter: 'A', order: 0, active: true }],
+    details: { A: { letter: 'A', name: 'Too Expensive', retailPrice: 80, proof: 100 } },
+    responses: players.map((player) => ({
+      playerId: player.id, bottleLetter: 'A', buyChoice: 'Maybe',
+      priceGuess: 90, proofGuess: 100, finalRank: 1,
+    })),
+  });
+  assert.equal(allOver.bottleResults[0].pirPointsAvailable, 2);
+  assert.ok(allOver.playerResults.every((player) => player.priceIsRight === 2));
+});
+
+test('bottle standings use Hell Yes, Maybe, then sample order as tie-breakers', () => {
+  const players = ['p1', 'p2', 'p3'].map((id, order) => ({ id, name: id, order, active: true }));
+  const bottles = ['A', 'B', 'C'].map((letter, order) => ({ letter, order, active: true }));
+  const ranks = {
+    p1: { A: 1, B: 2, C: 3 },
+    p2: { A: 2, B: 3, C: 1 },
+    p3: { A: 3, B: 1, C: 2 },
+  };
+  const votes = {
+    A: ['Hell Yes', 'Hell Yes', 'Hell Yes'],
+    B: ['Hell Yes', 'Maybe', 'Nope'],
+    C: ['Hell Yes', 'Maybe', 'Maybe'],
+  };
+  const responses = players.flatMap((player, playerIndex) => bottles.map((bottle) => ({
+    playerId: player.id,
+    bottleLetter: bottle.letter,
+    buyChoice: votes[bottle.letter][playerIndex],
+    priceGuess: 50,
+    proofGuess: 100,
+    finalRank: ranks[player.id][bottle.letter],
+  })));
+  const result = calculateGame({ game: {}, players, bottles, responses });
+  assert.deepEqual(result.rankedBottles.map((bottle) => bottle.letter), ['A', 'C', 'B']);
+
+  const sampleOrderFallback = calculateGame({
+    game: {},
+    players: players.slice(0, 2),
+    bottles: bottles.slice(0, 2),
+    responses: [
+      { playerId: 'p1', bottleLetter: 'A', buyChoice: 'Maybe', finalRank: 1 },
+      { playerId: 'p1', bottleLetter: 'B', buyChoice: 'Maybe', finalRank: 2 },
+      { playerId: 'p2', bottleLetter: 'A', buyChoice: 'Maybe', finalRank: 2 },
+      { playerId: 'p2', bottleLetter: 'B', buyChoice: 'Maybe', finalRank: 1 },
+    ],
+  });
+  assert.deepEqual(sampleOrderFallback.rankedBottles.map((bottle) => bottle.letter), ['A', 'B']);
 });
 
 test('bottle awards separate the bargain upset from the overpriced disappointment', () => {
@@ -831,7 +934,24 @@ test('the lobby advertises self-registration and excludes hidden slots', () => {
   assert.match(html, /1<\/strong><span>of 10 player spots filled/);
   assert.match(html, /Whiskey Business/);
   assert.match(html, /invent a ridiculous name/i);
+  for (const rule of DRUNK_FRIENDLY_RULES) {
+    assert.ok(html.includes(rule.title.replaceAll('&', '&amp;')), `Expected setup scoreboard to show ${rule.title}`);
+    assert.ok(html.includes(rule.points), `Expected setup scoreboard to show ${rule.points}`);
+  }
   assert.doesNotMatch(html, /player-02/);
+});
+
+test('setup removes the obsolete join box, explains scoring, and opens scoreboards in a new tab', () => {
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+
+  assert.equal(DRUNK_FRIENDLY_RULES.length, 6);
+  assert.match(DRUNK_FRIENDLY_RULES.find((rule) => rule.id === 'higher-lower').copy, /Push\. Nobody scores/);
+  assert.match(DRUNK_FRIENDLY_RULES.find((rule) => rule.id === 'price-is-right').copy, /Matching winners all score/);
+  assert.match(DRUNK_FRIENDLY_RULES.find((rule) => rule.id === 'ties').copy, /shared place and shared crown/);
+  assert.match(DRUNK_FRIENDLY_RULES.find((rule) => rule.id === 'ties').copy, /Hell Yes votes, then Maybe votes, then sample order/);
+  assert.doesNotMatch(appSource, /Join the Tasting|Find My Player Card|show-join|homePanel/);
+  assert.match(appSource, /renderDrunkFriendlyRules\('participant-rules'\)/);
+  assert.match(appSource, /window\.open\(buildUrl\(state\.code, 'scoreboard'\)\.toString\(\), '_blank', 'noopener,noreferrer'\)/);
 });
 
 test('participant completion is shared on the player card and reset with the game', () => {
@@ -854,6 +974,7 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 
   for (const asset of [
+    './js/game-rules.js',
     './js/easter-egg.js',
     './js/tasting-notes.js',
     './js/registration.js',
@@ -869,7 +990,7 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v16-bottle-awards'/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v17-drunk-rules'/);
   assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v11-phone-king-centering/);
   const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
   const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);

@@ -13,6 +13,7 @@ import {
 } from './scoring.js';
 import { BOTTLE_LETTERS, activeBottlesFromDraft, hasBottleSetupInfo } from './setup.js';
 import { renderTvScoreboard } from './scoreboard.js';
+import { DRUNK_FRIENDLY_RULES } from './game-rules.js';
 import {
   emptyFinaleState,
   finalePlayersComplete,
@@ -43,7 +44,6 @@ const state = {
   snapshot: null,
   playerId: null,
   currentLetter: null,
-  homePanel: 'join',
   createDraft: null,
   hostTab: 'control',
   hostDraft: null,
@@ -343,38 +343,31 @@ function renderHome() {
       <img src="./assets/derby-banner.webp" alt="Blind Bourbon Derby retro participant scorecard artwork">
       <div class="hero-overlay">
         <p class="eyebrow">Nashville's most needlessly elaborate blind tasting</p>
-        <div class="hero-buttons">
-          <button class="btn btn-red btn-lg" data-action="show-create">Start a Derby</button>
-          <button class="btn btn-navy btn-lg" data-action="show-join">Join a Game</button>
-        </div>
       </div>
     </section>
 
-    <section class="home-grid">
-      <article class="paper-panel ink-frame home-panel ${state.homePanel === 'join' ? 'active-panel' : ''}">
-        <div class="ribbon-title"><span>Join the Tasting</span></div>
-        <p>Enter the code your facilitator gives you, then pick your own name.</p>
-        <form data-form="join-game" class="join-code-form">
-          <label>Game Code
-            <input name="code" maxlength="8" inputmode="text" autocomplete="off" placeholder="ABC123" required>
-          </label>
-          <button class="btn btn-navy btn-lg" type="submit">Find My Player Card</button>
-        </form>
-        ${!state.store.isShared ? `<button class="btn btn-gold" data-action="try-demo">Open the Populated Demo</button>` : ''}
-      </article>
-
-      <article class="paper-panel ink-frame home-panel ${state.homePanel === 'create' ? 'active-panel wide-panel' : ''}">
+    <section class="home-grid facilitator-only">
+      <article class="paper-panel ink-frame home-panel active-panel wide-panel">
         <div class="ribbon-title red"><span>Facilitator's Booth</span></div>
-        ${state.homePanel === 'create' ? renderCreateForm() : `
-          <div class="host-teaser">
-            <img src="./assets/moose.webp" alt="Cartoon moose mascot holding a bourbon glass">
-            <div>
-              <h2>Your wife runs the show.</h2>
-              <p>She loads the secret bottle details, opens registration, controls each round, reveals the bourbons, and watches the leaderboard update.</p>
-              <button class="btn btn-red" data-action="show-create">Build the Game</button>
-            </div>
-          </div>`}
+        ${renderCreateForm()}
       </article>
+    </section>`;
+}
+
+function renderDrunkFriendlyRules(className = '') {
+  return `
+    <section class="drunk-rules ${className}" aria-label="How to win the Bourbon Derby">
+      <div class="drunk-rules-heading">
+        <span class="kicker">Read this before the third pour</span>
+        <h2>How to Win This Nonsense</h2>
+      </div>
+      <div class="drunk-rules-grid">
+        ${DRUNK_FRIENDLY_RULES.map((rule) => `
+          <article class="drunk-rule rule-${esc(rule.id)}">
+            <b>${esc(rule.points)}</b>
+            <div><strong>${esc(rule.title)}</strong><span>${esc(rule.copy)}</span></div>
+          </article>`).join('')}
+      </div>
     </section>`;
 }
 
@@ -412,6 +405,7 @@ function renderCreateForm() {
 
       <div class="form-actions">
         <button class="btn btn-red btn-xl" type="submit">Create the Derby</button>
+        ${state.store.isShared ? '' : '<button class="btn btn-gold" type="button" data-action="try-demo">Open the Populated Demo</button>'}
         <span class="fine-print">The facilitator should create the game on the browser she plans to use all night.</span>
       </div>
     </form>`;
@@ -572,7 +566,11 @@ function renderPlayerCard(player) {
     ${game.phase === 'setup' ? `
       <section class="paper-panel waiting-panel ink-frame">
         <img src="./assets/moose.webp" alt="Moose waiting for the derby">
-        <div><h2>The bottle vault is still open.</h2><p>Your card will unlock when the facilitator starts the blind tasting.</p></div>
+        <div class="waiting-copy">
+          <h2>The bottle vault is still open.</h2>
+          <p>Your card will unlock when the facilitator starts the blind tasting.</p>
+          ${renderDrunkFriendlyRules('participant-rules')}
+        </div>
       </section>` : `
       ${renderRankSummary(playerResult, calc.bottles.length)}
       <nav class="sample-tabs" aria-label="Mystery samples">
@@ -1207,16 +1205,6 @@ root.addEventListener('click', async (event) => {
     navigate();
     return;
   }
-  if (action === 'show-create') {
-    state.homePanel = 'create';
-    render();
-    return;
-  }
-  if (action === 'show-join') {
-    state.homePanel = 'join';
-    render();
-    return;
-  }
   if (action === 'add-create-bottle') {
     syncCreateDraftFromForm();
     const letter = LETTERS[state.createDraft.bottles.length];
@@ -1238,7 +1226,10 @@ root.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'open-host') { navigate({ code: state.code, view: 'host' }); return; }
-  if (action === 'open-scoreboard') { navigate({ code: state.code, view: 'scoreboard' }); return; }
+  if (action === 'open-scoreboard') {
+    window.open(buildUrl(state.code, 'scoreboard').toString(), '_blank', 'noopener,noreferrer');
+    return;
+  }
   if (action === 'open-player') { navigate({ code: state.code }); return; }
   if (action === 'refresh') { await loadSnapshot(); toast('Game refreshed.'); return; }
   if (action === 'copy-link') {
