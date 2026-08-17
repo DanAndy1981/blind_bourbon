@@ -6,7 +6,8 @@ The site has no build step. It is plain HTML, CSS, and JavaScript, so the front 
 
 ## What is included
 
-- Facilitator setup for player names, event details, and secret bourbon information
+- Facilitator setup for event details and secret bourbon information
+- QR self-registration for up to 10 player-created names
 - A join link and six-character game code
 - One claimed mobile scorecard per player
 - Automatic saving on each phone
@@ -34,6 +35,8 @@ The site has no build step. It is plain HTML, CSS, and JavaScript, so the front 
 
 Bottle finish is based on average final rank, with `Hell Yes` votes and then `Maybe` votes as tie-breakers. Punches Above Its Weight goes to the less-expensive bottle that most outruns its price rank. Biggest Waste of Money goes to the expensive bottle that falls farthest below its price rank.
 
+An exact actual price or proof matching the club average is a push, so neither Higher nor Lower earns a point. Matching Price Is Right winning guesses all receive the available points. Players with the same final score share the same rank (and the crown when tied for first). If bottle averages and buy votes are all tied, setup/sample order is the final bottle tie-breaker.
+
 ## Run the local demo
 
 Because the app uses JavaScript modules, serve the folder rather than double-clicking `index.html`.
@@ -58,10 +61,10 @@ Follow [`FIREBASE_SETUP.md`](./FIREBASE_SETUP.md). The short version is:
 
 ## Facilitator workflow
 
-1. The facilitator opens the site and selects **Start a Derby**.
-2. She adds the players and secret bottle details, then creates the game.
-3. She texts or shares the displayed player link.
-4. Each guest opens the link, selects his own name, and claims that player card.
+1. The facilitator opens the site, enters the event and secret bottle details, then creates the game.
+2. She opens the scoreboard on the TV.
+3. Guests scan its QR code, invent their own names, and register their player cards (up to 10).
+4. The facilitator keeps the booth open on her phone or laptop.
 5. She advances the round from **Setup** to **Blind Tasting**, **Higher / Lower**, **The Reveal**, and **Final Results**.
 6. During the reveal, she can reveal one bottle at a time from last place to first.
 

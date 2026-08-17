@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v16-bottle-awards';
+const CACHE_NAME = 'blind-bourbon-derby-v17-drunk-rules';
 const APP_SHELL = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const APP_SHELL = [
   './js/finale.js',
   './js/scoring.js',
   './js/scoreboard.js',
+  './js/game-rules.js',
   './js/easter-egg.js',
   './js/tasting-notes.js',
   './js/setup.js',

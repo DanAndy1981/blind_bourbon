@@ -3,6 +3,7 @@ import { renderEasterEgg } from './easter-egg.js';
 import { selectRevealTastingNotes, tastingNotePreview } from './tasting-notes.js';
 import { MAX_PLAYERS } from './registration.js';
 import { finaleCueMatches, normalizeFinaleState } from './finale.js';
+import { DRUNK_FRIENDLY_RULES } from './game-rules.js';
 
 const esc = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -76,6 +77,13 @@ function renderLobbyStage(calc) {
         <div class="tv-contestant-strip">
           ${calc.players.length ? calc.players.map((player) => `
             <div class="is-joined"><span>★</span><strong>${esc(player.name)}</strong></div>`).join('') : '<div><span>○</span><strong>Waiting for the first brave idiot…</strong></div>'}
+        </div>
+        <div class="tv-drunk-rules" aria-label="How to win the Bourbon Derby">
+          ${DRUNK_FRIENDLY_RULES.map((rule) => `
+            <article class="tv-drunk-rule rule-${esc(rule.id)}">
+              <b>${esc(rule.points)}</b>
+              <div><strong>${esc(rule.title)}</strong><span>${esc(rule.copy)}</span></div>
+            </article>`).join('')}
         </div>
       </div>
       <img class="tv-lobby-moose" src="./assets/moose-moonshiner.webp" alt="The Drunk Moose moonshiner welcomes contestants beside his copper still">
