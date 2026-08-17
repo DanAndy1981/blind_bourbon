@@ -20,6 +20,7 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check js/claim-guard.js
+          node --check js/registration-draft.js
           node --check sw.js
       - name: Run tests
         run: node --test tests/*.test.mjs
