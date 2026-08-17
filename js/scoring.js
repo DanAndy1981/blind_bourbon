@@ -198,7 +198,7 @@ export function calculateGame(snapshot = {}) {
       clubPlace: null,
       priceRank: null,
       upsetGap: null,
-      valueIndex: null,
+      disappointmentGap: null,
     };
   });
 
@@ -220,10 +220,10 @@ export function calculateGame(snapshot = {}) {
       bottle.priceRank = 1 + bottleResults.filter((other) => other.actualPrice !== null && other.actualPrice > bottle.actualPrice).length;
     }
     if (bottle.priceRank !== null && bottle.clubPlace !== null) {
-      bottle.upsetGap = Math.abs(bottle.priceRank - bottle.clubPlace);
-    }
-    if (bottle.actualPrice !== null && bottle.actualPrice > 0 && bottle.avgFinish !== null) {
-      bottle.valueIndex = ((bottles.length + 1 - bottle.avgFinish) / bottle.actualPrice) * 100;
+      // A positive upset gap means a less-expensive bottle outran its price
+      // rank. The reverse gap identifies an expensive bottle that disappointed.
+      bottle.upsetGap = bottle.priceRank - bottle.clubPlace;
+      bottle.disappointmentGap = bottle.clubPlace - bottle.priceRank;
     }
   }
 
@@ -282,13 +282,13 @@ export function calculateGame(snapshot = {}) {
   }
   playerResults.sort((a, b) => b.total - a.total || (a.order ?? 999) - (b.order ?? 999));
 
-  const valueCandidates = bottleResults.filter((bottle) => bottle.valueIndex !== null);
-  const valueChampion = valueCandidates.length
-    ? valueCandidates.reduce((best, bottle) => bottle.valueIndex > best.valueIndex ? bottle : best)
-    : null;
   const upsetCandidates = bottleResults.filter((bottle) => bottle.upsetGap !== null);
   const biggestUpset = upsetCandidates.length
     ? upsetCandidates.reduce((best, bottle) => bottle.upsetGap > best.upsetGap ? bottle : best)
+    : null;
+  const disappointmentCandidates = bottleResults.filter((bottle) => bottle.disappointmentGap !== null);
+  const biggestDisappointment = disappointmentCandidates.length
+    ? disappointmentCandidates.reduce((worst, bottle) => bottle.disappointmentGap > worst.disappointmentGap ? bottle : worst)
     : null;
   const highestPlayerScore = playerResults.length ? Math.max(...playerResults.map((player) => player.total)) : null;
   const savants = highestPlayerScore === null
@@ -312,8 +312,8 @@ export function calculateGame(snapshot = {}) {
     playerResults,
     winner,
     lastPlace,
-    valueChampion,
     biggestUpset,
+    biggestDisappointment,
     savant,
     savants,
     biggestLosers,

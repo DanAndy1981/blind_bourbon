@@ -183,6 +183,33 @@ test('rank 1 and the highest rank replace manual winner and last-place picks', (
   assert.equal(result.playerResults[0].tastingComplete, true);
 });
 
+test('bottle awards separate the bargain upset from the overpriced disappointment', () => {
+  const players = [{ id: 'p1', name: 'Daniel', order: 0, active: true }];
+  const bottles = ['A', 'B', 'C'].map((letter, order) => ({ letter, order, active: true, revealed: true }));
+  const details = {
+    A: { letter: 'A', name: 'Cheap Bruiser', retailPrice: 20 },
+    B: { letter: 'B', name: 'Middle Bottle', retailPrice: 60 },
+    C: { letter: 'C', name: 'Overpriced Shelf Queen', retailPrice: 120 },
+  };
+  const responses = [
+    { playerId: 'p1', bottleLetter: 'A', finalRank: 1, buyChoice: 'Hell Yes', priceGuess: 20, proofGuess: 90 },
+    { playerId: 'p1', bottleLetter: 'B', finalRank: 2, buyChoice: 'Maybe', priceGuess: 60, proofGuess: 100 },
+    { playerId: 'p1', bottleLetter: 'C', finalRank: 3, buyChoice: 'Nope', priceGuess: 120, proofGuess: 110 },
+  ];
+
+  const result = calculateGame({ game: { phase: 'reveal' }, players, bottles, details, responses });
+
+  assert.equal(result.biggestUpset.letter, 'A');
+  assert.equal(result.biggestUpset.priceRank, 3);
+  assert.equal(result.biggestUpset.clubPlace, 1);
+  assert.equal(result.biggestUpset.upsetGap, 2);
+  assert.equal(result.biggestDisappointment.letter, 'C');
+  assert.equal(result.biggestDisappointment.priceRank, 1);
+  assert.equal(result.biggestDisappointment.clubPlace, 3);
+  assert.equal(result.biggestDisappointment.disappointmentGap, 2);
+  assert.equal(result.valueChampion, undefined);
+});
+
 test('sanitized progress preserves live TV updates without exposing guesses', () => {
   const bottles = ['A', 'B'].map((letter, order) => ({ letter, order, active: true }));
   const progress = summarizePlayerProgress({
@@ -623,6 +650,7 @@ test('finale state is backward-compatible, bounded, and records one-shot curtain
   assert.deepEqual(emptyFinaleState().revealedPlayerIds, []);
   assert.equal(normalizeFinaleState({ phase: 'final' }).finalBoardRevealed, true, 'Legacy final games stay visible');
   assert.equal(normalizeFinaleState({ phase: 'reveal' }).finalBoardRevealed, false);
+  assert.equal(normalizeFinaleState({ finaleState: { valueChampionRevealed: true } }).biggestUpsetRevealed, true, 'Old best-value reveals carry forward');
 
   const playerReveal = nextFinaleState(
     { finaleState: emptyFinaleState() },
@@ -639,6 +667,8 @@ test('finale state is backward-compatible, bounded, and records one-shot curtain
   assert.equal(full.finalBoardRevealed, true);
   assert.equal(full.savantRevealed, true);
   assert.equal(full.biggestLoserRevealed, true);
+  assert.equal(full.biggestUpsetRevealed, true);
+  assert.equal(full.biggestDisappointmentRevealed, true);
   assert.deepEqual(full.revealedPlayerIds, ['p1', 'p2']);
   assert.equal(finalePlayersComplete(full, [{ id: 'p1' }, { id: 'p2' }]), true);
 });
@@ -646,9 +676,10 @@ test('finale state is backward-compatible, bounded, and records one-shot curtain
 test('the reveal TV supports host-selected bottle, player, and award curtain scenes', () => {
   const bottleState = {
     ...emptyFinaleState(),
-    valueChampionRevealed: true,
+    biggestUpsetRevealed: true,
+    biggestDisappointmentRevealed: true,
     cueId: 1,
-    cueType: 'valueChampion',
+    cueType: 'biggestUpset',
   };
   const bottleSnapshot = finaleSnapshot(bottleState);
   const bottleHtml = renderTvScoreboard({
@@ -656,13 +687,17 @@ test('the reveal TV supports host-selected bottle, player, and award curtain sce
     calc: calculateGame(bottleSnapshot),
     joinUrl: 'https://example.test/?game=FINALE1',
     qrUrl: 'https://example.test/qr.svg',
-    activeCue: { type: 'valueChampion', target: '' },
+    activeCue: { type: 'biggestUpset', target: '' },
   });
   assert.match(bottleHtml, /The Derby Finish/);
-  assert.match(bottleHtml, /Value Champion/);
-  assert.match(bottleHtml, /tv-special-bottle-award tv-curtain-card is-curtain-open is-curtain-cue/);
-  assert.match(bottleHtml, /Biggest Upset/);
-  assert.match(bottleHtml, /tv-special-bottle-award tv-curtain-card is-curtain-closed/);
+  assert.equal(classCount(bottleHtml, 'tv-special-bottle-award', { prefix: true }), 3);
+  assert.match(bottleHtml, /Punches Above Its Weight/);
+  assert.match(bottleHtml, /Biggest Waste of Money/);
+  assert.match(bottleHtml, /Honey Badger don\'t give a F\*\*k!/);
+  assert.match(bottleHtml, /award-honey-badger\.webp/);
+  assert.match(bottleHtml, /award-burning-money\.webp/);
+  assert.match(bottleHtml, /tv-derby-star[^>]*>★</);
+  assert.match(bottleHtml, /is-upset tv-curtain-card is-curtain-open is-curtain-cue/);
 
   const playerState = { ...bottleState, scene: 'players', revealedPlayerIds: ['p2'], cueId: 2, cueType: 'player', cueTarget: 'p2' };
   const playerSnapshot = finaleSnapshot(playerState);
@@ -710,7 +745,7 @@ test('the full final TV shows both awards, every player point component, and bot
     assert.match(html, new RegExp(label));
   }
   for (const player of initial.players) assert.match(html, new RegExp(player.name));
-  assert.match(html, /Value: .* · Biggest Upset:/);
+  assert.match(html, /Punches Above: .* · Biggest Waste:/);
   assert.match(html, /tv-final-score-table/);
   assert.match(html, /tv-finish-strip/);
 });
@@ -829,10 +864,12 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
     './assets/moose-king.webp',
     './assets/moose-shower-surprise.webp',
     './assets/biggest-loser-poop.webp',
+    './assets/award-honey-badger.webp',
+    './assets/award-burning-money.webp',
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v15-grand-finale'/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v16-bottle-awards'/);
   assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v11-phone-king-centering/);
   const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
   const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);

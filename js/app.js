@@ -815,8 +815,8 @@ function renderHostReveal(calc) {
     .find((player) => !revealedPlayers.has(player.id));
   const allPlayersRevealed = finalePlayersComplete(finale, calc.playerResults);
   const finalAwardsRevealed = finale.savantRevealed && finale.biggestLoserRevealed;
-  const bottleAwardsRevealed = (!calc.valueChampion || finale.valueChampionRevealed)
-    && (!calc.biggestUpset || finale.biggestUpsetRevealed);
+  const bottleAwardsRevealed = (!calc.biggestUpset || finale.biggestUpsetRevealed)
+    && (!calc.biggestDisappointment || finale.biggestDisappointmentRevealed);
   const allBottlesRevealed = calc.bottles.length > 0 && calc.bottles.every((bottle) => bottle.revealed);
   const readyForFinalBoard = allPlayersRevealed && finalAwardsRevealed && bottleAwardsRevealed && allBottlesRevealed;
   return `
@@ -853,8 +853,8 @@ function renderHostReveal(calc) {
           }).join('')}
         </div>`}
         <div class="host-bottle-awards">
-          ${renderHostBottleAward('Value Champion', 'Best blind finish for the money', calc.valueChampion, finale.valueChampionRevealed, 'value-champion', calc)}
-          ${renderHostBottleAward('Biggest Upset', 'Biggest gap between price rank and blind finish', calc.biggestUpset, finale.biggestUpsetRevealed, 'biggest-upset', calc)}
+          ${renderHostBottleAward("Punches Above Its Weight", 'The bargain bottle that most outran its price rank', calc.biggestUpset, finale.biggestUpsetRevealed, 'biggest-upset', calc)}
+          ${renderHostBottleAward('Biggest Waste of Money', 'The pricey bottle that fell farthest below its price rank', calc.biggestDisappointment, finale.biggestDisappointmentRevealed, 'biggest-disappointment', calc)}
         </div>
       </div>
 
@@ -1013,16 +1013,16 @@ function renderScoreboardBody(hostEmbed = false) {
   const finale = normalizeFinaleState(game);
   const champion = calc.winner;
   const savant = calc.savant;
-  const valueChampion = calc.valueChampion;
   const upset = calc.biggestUpset;
+  const disappointment = calc.biggestDisappointment;
   const biggestLosers = calc.biggestLosers || [];
   const biggestLoserNames = biggestLosers.map((player) => player.name).join(' & ');
   const revealedPlayerIds = new Set(finale.revealedPlayerIds);
   const leaderboardPlayers = finale.finalBoardRevealed
     ? calc.playerResults
     : calc.playerResults.filter((player) => revealedPlayerIds.has(player.id));
-  const valueChampionVisible = Boolean(valueChampion?.revealed && finale.valueChampionRevealed);
   const upsetVisible = Boolean(upset?.revealed && finale.biggestUpsetRevealed);
+  const disappointmentVisible = Boolean(disappointment?.revealed && finale.biggestDisappointmentRevealed);
   const savantVisible = Boolean(savant && (finale.savantRevealed || finale.finalBoardRevealed));
   const biggestLoserVisible = Boolean(biggestLoserNames && (finale.biggestLoserRevealed || finale.finalBoardRevealed));
   const columnCount = Math.min(5, Math.max(1, calc.rankedBottles.length));
@@ -1033,9 +1033,9 @@ function renderScoreboardBody(hostEmbed = false) {
         <div class="scoreboard-section-title"><span>Winner Cards</span><small>Follow the host's grand-finale reveals</small></div>
         <div class="champion-grid ${game.phase === 'final' ? 'finale' : ''}">
           ${renderChampionCard('Derby Champion', champion?.revealed ? revealedName(champion, calc.detailsByLetter) : 'Awaiting reveal', champion?.revealed ? `Sample ${champion.letter} · Club place #1` : 'The winning bottle is still under wraps', 'trophy', champion?.revealed)}
-          ${renderChampionCard('Value Champion', valueChampionVisible ? revealedName(valueChampion, calc.detailsByLetter) : 'Awaiting host reveal', valueChampionVisible ? `Value index ${formatNumber(valueChampion.valueIndex, 2)}` : 'Best finish for the money', 'dollar', valueChampionVisible)}
+          ${renderChampionCard("Punches Above Its Weight", upsetVisible ? revealedName(upset, calc.detailsByLetter) : 'Awaiting host reveal', upsetVisible ? `${upset.upsetGap} places above its price rank` : 'The bargain-bin bruiser', 'badger', upsetVisible)}
           ${renderChampionCard('Bourbon Savant', savantVisible ? savant.name : 'Awaiting host reveal', savantVisible ? `${savant.total} points · Rank #${savant.rank}` : 'Game-show leaderboard winner', 'brain', savantVisible)}
-          ${renderChampionCard('Biggest Upset', upsetVisible ? revealedName(upset, calc.detailsByLetter) : 'Awaiting host reveal', upsetVisible ? `${upset.upsetGap} places from price rank` : 'Price versus blind finish', 'upset', upsetVisible)}
+          ${renderChampionCard('Biggest Waste of Money', disappointmentVisible ? revealedName(disappointment, calc.detailsByLetter) : 'Awaiting host reveal', disappointmentVisible ? `${disappointment.disappointmentGap} places below its price rank` : 'The most overpriced disappointment', 'waste', disappointmentVisible)}
           ${renderChampionCard('Biggest Loser', biggestLoserVisible ? biggestLoserNames : 'Awaiting host reveal', biggestLoserVisible && biggestLosers.length ? `${biggestLosers[0].total} points · welcome to the basement` : 'Poop trophy not yet awarded', 'poop', biggestLoserVisible)}
         </div>
       </section>
@@ -1084,9 +1084,14 @@ function renderStandingCard(bottle, detailsByLetter) {
 }
 
 function renderChampionCard(title, name, detail, icon, visible = false) {
-  const icons = { trophy: '★', dollar: '$', brain: '♛', upset: '!' };
-  const iconMarkup = icon === 'poop'
-    ? '<img src="./assets/biggest-loser-poop.webp" alt="Steaming cartoon poop trophy">'
+  const icons = { trophy: '★', brain: '♛' };
+  const imageIcons = {
+    poop: ['./assets/biggest-loser-poop.webp', 'Steaming cartoon poop trophy'],
+    badger: ['./assets/award-honey-badger.webp', 'Rubber-hose cartoon honey badger boxer'],
+    waste: ['./assets/award-burning-money.webp', 'Rubber-hose cartoon bundle of green money burning'],
+  };
+  const iconMarkup = imageIcons[icon]
+    ? `<img src="${imageIcons[icon][0]}" alt="${imageIcons[icon][1]}">`
     : icons[icon];
   return `
     <article class="champion-card ink-frame ${icon} ${visible ? 'is-revealed' : 'is-hidden'}">
@@ -1343,8 +1348,8 @@ root.addEventListener('click', async (event) => {
     const reveal = action === 'reveal-finale-item';
     const item = button.dataset.finaleItem;
     const definitions = {
-      'value-champion': ['valueChampionRevealed', 'valueChampion', 'bottles'],
       'biggest-upset': ['biggestUpsetRevealed', 'biggestUpset', 'bottles'],
+      'biggest-disappointment': ['biggestDisappointmentRevealed', 'biggestDisappointment', 'bottles'],
       savant: ['savantRevealed', 'savant', 'awards'],
       'biggest-loser': ['biggestLoserRevealed', 'biggestLoser', 'awards'],
     };

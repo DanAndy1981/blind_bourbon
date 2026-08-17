@@ -198,9 +198,11 @@ function renderRevealStage(calc, activeCue) {
       </div>
       <aside class="tv-score-rail">
         <div class="tv-vault-meter"><strong>${revealedCount}<small>/${calc.bottles.length}</small></strong><span>Bottles out of the vault</span></div>
-        ${renderCompactAward('Derby Champion', calc.winner?.revealed ? revealedBottleName(calc.winner, calc.detailsByLetter) : 'Still behind the curtain', calc.winner?.revealed ? `Sample ${calc.winner.letter}` : 'First place bottle', 'bottle')}
-        ${renderRevealBottleAward('Value Champion', calc.valueChampion, finale.valueChampionRevealed, calc, 'valueChampion', activeCue)}
-        ${renderRevealBottleAward('Biggest Upset', calc.biggestUpset, finale.biggestUpsetRevealed, calc, 'biggestUpset', activeCue)}
+        <div class="tv-bottle-award-stack">
+          ${renderDerbyChampionAward(calc, activeCue)}
+          ${renderRevealBottleAward("Punches Above Its Weight", calc.biggestUpset, finale.biggestUpsetRevealed, calc, 'biggestUpset', activeCue)}
+          ${renderRevealBottleAward('Biggest Waste of Money', calc.biggestDisappointment, finale.biggestDisappointmentRevealed, calc, 'biggestDisappointment', activeCue)}
+        </div>
         <p class="tv-reveal-instruction">Next up: player standings, then the Savant and Biggest Loser curtains.</p>
       </aside>
     </section>`;
@@ -241,16 +243,40 @@ function renderRevealBottle(bottle, calc, activeCue) {
     </article>`;
 }
 
+function renderDerbyChampionAward(calc, activeCue) {
+  const bottle = calc.winner;
+  const visible = Boolean(bottle?.revealed);
+  const detail = bottle ? calc.detailsByLetter[bottle.letter] || bottle.detail || {} : {};
+  return `
+    <article class="tv-special-bottle-award is-derby ${curtainClasses(visible, finaleCueMatches(activeCue, 'bottle', bottle?.letter || ''))}">
+      <div class="tv-derby-star" aria-hidden="true">★</div>
+      <div class="tv-bottle-award-copy">
+        <span>Derby Champion</span>
+        <strong>${visible && bottle ? esc(detail.name || `Sample ${bottle.letter}`) : 'Behind the curtain'}</strong>
+        <small>${visible && bottle ? `Sample ${esc(bottle.letter)} · First across the finish line` : 'The winning bourbon'}</small>
+      </div>
+    </article>`;
+}
+
 function renderRevealBottleAward(title, bottle, visible, calc, cueType, activeCue) {
   const detail = bottle ? calc.detailsByLetter[bottle.letter] || bottle.detail || {} : {};
-  const detailLine = cueType === 'valueChampion'
-    ? `Value index ${formatNumber(bottle?.valueIndex, 2)}`
-    : `${formatNumber(bottle?.upsetGap, 0)} places from price rank`;
+  const isUpset = cueType === 'biggestUpset';
+  const detailLine = isUpset
+    ? `${formatNumber(bottle?.upsetGap, 0)} places above its price rank`
+    : `${formatNumber(bottle?.disappointmentGap, 0)} places below its price rank`;
+  const asset = isUpset ? 'award-honey-badger.webp' : 'award-burning-money.webp';
+  const alt = isUpset
+    ? 'A bruiser rubber-hose cartoon honey badger boxer'
+    : 'A miserable rubber-hose cartoon bundle of green money burning';
   return `
-    <article class="tv-special-bottle-award ${curtainClasses(visible, finaleCueMatches(activeCue, cueType))}">
-      <span>${esc(title)}</span>
-      <strong>${visible && bottle ? esc(detail.name || `Sample ${bottle.letter}`) : 'Behind the curtain'}</strong>
-      <small>${visible && bottle ? `Sample ${esc(bottle.letter)} · ${esc(detailLine)}` : 'Special bottle reveal'}</small>
+    <article class="tv-special-bottle-award ${isUpset ? 'is-upset' : 'is-disappointment'} ${curtainClasses(visible, finaleCueMatches(activeCue, cueType))}">
+      ${visible ? `<img class="tv-bottle-award-art" src="./assets/${asset}" alt="${alt}">` : '<div class="tv-bottle-award-question" aria-hidden="true">?</div>'}
+      <div class="tv-bottle-award-copy">
+        <span>${esc(title)}</span>
+        <strong>${visible && bottle ? esc(detail.name || `Sample ${bottle.letter}`) : 'Behind the curtain'}</strong>
+        <small>${visible && bottle ? `Sample ${esc(bottle.letter)} · ${esc(detailLine)}` : 'Special bottle reveal'}</small>
+        ${visible && isUpset ? '<q>Honey Badger don\'t give a F**k!</q>' : ''}
+      </div>
     </article>`;
 }
 
@@ -270,8 +296,8 @@ function renderPlayerRevealStage(calc, finale, activeCue) {
           <strong>How the damage happened</strong>
           <span>H/L · price guess · winner pick · last pick · bonus</span>
         </div>
-        ${renderRevealBottleAward('Value Champion', calc.valueChampion, finale.valueChampionRevealed, calc, 'valueChampion', activeCue)}
-        ${renderRevealBottleAward('Biggest Upset', calc.biggestUpset, finale.biggestUpsetRevealed, calc, 'biggestUpset', activeCue)}
+        ${renderRevealBottleAward("Punches Above Its Weight", calc.biggestUpset, finale.biggestUpsetRevealed, calc, 'biggestUpset', activeCue)}
+        ${renderRevealBottleAward('Biggest Waste of Money', calc.biggestDisappointment, finale.biggestDisappointmentRevealed, calc, 'biggestDisappointment', activeCue)}
         <p class="tv-reveal-instruction">When every ranking is open, the two final award curtains are ready.</p>
       </aside>
     </section>`;
@@ -375,9 +401,9 @@ function renderDetailedPlayerLeaderboard(players) {
 }
 
 function finalBottleAwardsSummary(calc) {
-  const valueName = calc.valueChampion ? revealedBottleName(calc.valueChampion, calc.detailsByLetter) : '—';
   const upsetName = calc.biggestUpset ? revealedBottleName(calc.biggestUpset, calc.detailsByLetter) : '—';
-  return `Value: ${valueName} · Biggest Upset: ${upsetName}`;
+  const disappointmentName = calc.biggestDisappointment ? revealedBottleName(calc.biggestDisappointment, calc.detailsByLetter) : '—';
+  return `Punches Above: ${upsetName} · Biggest Waste: ${disappointmentName}`;
 }
 
 function renderFinalBottle(bottle, detailsByLetter) {
@@ -394,13 +420,6 @@ function renderFinalBottle(bottle, detailsByLetter) {
 function revealedBottleName(bottle, detailsByLetter) {
   const detail = detailsByLetter[bottle.letter] || bottle.detail || {};
   return detail.name || `Sample ${bottle.letter}`;
-}
-
-function renderCompactAward(title, name, detail, icon) {
-  return `
-    <article class="tv-compact-award ${esc(icon)}">
-      <span>${esc(title)}</span><strong>${esc(name)}</strong><small>${esc(detail)}</small>
-    </article>`;
 }
 
 function renderPlayerLeaderboard(players, compact = false) {

@@ -15,7 +15,7 @@ The site has no build step. It is plain HTML, CSS, and JavaScript, so the front 
 - A facilitator-controlled Higher / Lower round using the club's average price and proof guesses
 - Last-to-first bottle reveals
 - Automatic scoring and live leaderboards
-- Derby Champion, Value Champion, Bourbon Savant, Biggest Upset, and a deliberately awful Biggest Loser award
+- Derby Champion, Punches Above Its Weight, Biggest Waste of Money, Bourbon Savant, and a deliberately awful Biggest Loser award
 - An always-active, phase-aware retro TV gameboard for Chromecast
 - Manual trivia/bonus points
 - Installable app icons and an offline app shell
@@ -32,7 +32,7 @@ The site has no build step. It is plain HTML, CSS, and JavaScript, so the front 
 | Rank the club last-place bottle last | 3 |
 | Trivia / bonus | Facilitator enters the points |
 
-Bottle finish is based on average final rank, with `Hell Yes` votes and then `Maybe` votes as tie-breakers. Value Champion uses finish relative to retail price. Biggest Upset compares price rank with blind club finish.
+Bottle finish is based on average final rank, with `Hell Yes` votes and then `Maybe` votes as tie-breakers. Punches Above Its Weight goes to the less-expensive bottle that most outruns its price rank. Biggest Waste of Money goes to the expensive bottle that falls farthest below its price rank.
 
 ## Run the local demo
 
