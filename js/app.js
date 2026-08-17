@@ -12,10 +12,15 @@ import {
 } from './scoring.js';
 import { BOTTLE_LETTERS, activeBottlesFromDraft, hasBottleSetupInfo } from './setup.js';
 import { renderTvScoreboard } from './scoreboard.js';
+import { advanceEasterEggPresses, createEasterEggView } from './easter-egg.js';
 
 const root = document.querySelector('#app');
 const LETTERS = BOTTLE_LETTERS;
 const SAVE_DELAY = 550;
+const SERVICE_WORKER_UPDATE_INTERVAL = 5 * 60 * 1000;
+
+let serviceWorkerRegistration = null;
+let serviceWorkerUpdateTimer = null;
 
 const state = {
   store: null,
@@ -34,6 +39,7 @@ const state = {
   pollTimer: null,
   saveTimers: new Map(),
   saveStatus: 'saved',
+  scoreboardEasterEgg: { gameCode: null, presses: 0, dismissed: false },
 };
 
 const esc = (value) => String(value ?? '')
@@ -185,6 +191,7 @@ async function route() {
   const params = getParams();
   state.code = normalizeCode(params.get('game')) || null;
   state.view = params.get('view') || (state.code ? 'player' : 'home');
+  syncServiceWorkerUpdateSchedule();
   state.loading = Boolean(state.code);
   state.error = null;
   if (!state.code) {
@@ -201,6 +208,29 @@ async function route() {
     const shouldPoll = state.view === 'scoreboard' || document.visibilityState === 'visible';
     if (shouldPoll && state.hostTab !== 'setup') loadSnapshot({ silent: true });
   }, 3500);
+}
+
+function requestServiceWorkerUpdate() {
+  if (!serviceWorkerRegistration) return Promise.resolve();
+  return serviceWorkerRegistration.update()
+    .catch((error) => console.warn('Service worker update check failed:', error));
+}
+
+function syncServiceWorkerUpdateSchedule() {
+  if (serviceWorkerUpdateTimer) clearInterval(serviceWorkerUpdateTimer);
+  serviceWorkerUpdateTimer = null;
+  if (state.view !== 'scoreboard' || !serviceWorkerRegistration) return;
+  serviceWorkerUpdateTimer = setInterval(requestServiceWorkerUpdate, SERVICE_WORKER_UPDATE_INTERVAL);
+}
+
+async function registerServiceWorker() {
+  try {
+    serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js');
+    await requestServiceWorkerUpdate();
+    syncServiceWorkerUpdateSchedule();
+  } catch (error) {
+    console.warn('Service worker registration failed:', error);
+  }
 }
 
 function modeNotice() {
@@ -833,7 +863,22 @@ function renderScoreboardPage() {
   const calc = calculateGame(state.snapshot);
   const joinUrl = buildUrl(state.code).toString();
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&format=svg&qzone=1&data=${encodeURIComponent(joinUrl)}`;
-  return renderTvScoreboard({ snapshot: state.snapshot, calc, joinUrl, qrUrl });
+  const session = scoreboardEasterEggSession();
+  const easterEgg = createEasterEggView({
+    gameCode: state.code,
+    phase: state.snapshot.game.phase,
+    bottles: state.snapshot.bottles,
+    presses: session.presses,
+    dismissed: session.dismissed,
+  });
+  return renderTvScoreboard({ snapshot: state.snapshot, calc, joinUrl, qrUrl, easterEgg });
+}
+
+function scoreboardEasterEggSession() {
+  if (state.scoreboardEasterEgg.gameCode !== state.code) {
+    state.scoreboardEasterEgg = { gameCode: state.code, presses: 0, dismissed: false };
+  }
+  return state.scoreboardEasterEgg;
 }
 
 function revealedName(bottle, details) {
@@ -996,6 +1041,20 @@ root.addEventListener('click', async (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const action = button.dataset.action;
+
+  if (action === 'press-tv-easter-egg') {
+    if (state.view !== 'scoreboard') return;
+    const session = scoreboardEasterEggSession();
+    session.presses = advanceEasterEggPresses(session.presses);
+    render();
+    return;
+  }
+  if (action === 'dismiss-tv-easter-egg') {
+    if (state.view !== 'scoreboard') return;
+    scoreboardEasterEggSession().dismissed = true;
+    render();
+    return;
+  }
 
   if (action === 'go-home') {
     event.preventDefault();
@@ -1257,6 +1316,7 @@ root.addEventListener('change', async (event) => {
 window.addEventListener('popstate', route);
 window.addEventListener('beforeunload', () => {
   for (const timer of state.saveTimers.values()) clearTimeout(timer);
+  if (serviceWorkerUpdateTimer) clearInterval(serviceWorkerUpdateTimer);
 });
 
 async function boot() {
@@ -1267,7 +1327,7 @@ async function boot() {
     const params = getParams();
     if (forceLocal && params.get('game') === 'DEMO26') await state.store.createDemoGame();
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-      navigator.serviceWorker.register('./sw.js').catch((error) => console.warn('Service worker registration failed:', error));
+      registerServiceWorker();
     }
     await route();
   } catch (error) {

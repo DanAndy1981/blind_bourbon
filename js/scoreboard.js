@@ -1,4 +1,5 @@
 import { PHASES, formatMoney, formatNumber } from './scoring.js';
+import { renderEasterEgg } from './easter-egg.js';
 
 const esc = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -14,7 +15,7 @@ export function scoreboardStage(phase) {
   return PHASES.some((item) => item.id === phase) ? phase : 'setup';
 }
 
-export function renderTvScoreboard({ snapshot, calc, joinUrl, qrUrl }) {
+export function renderTvScoreboard({ snapshot, calc, joinUrl, qrUrl, easterEgg = null }) {
   const game = snapshot.game;
   const stage = scoreboardStage(game.phase);
   return `
@@ -23,6 +24,7 @@ export function renderTvScoreboard({ snapshot, calc, joinUrl, qrUrl }) {
       ${renderPhaseMarquee(game, stage)}
       ${renderJoinBug(game, joinUrl, qrUrl)}
       ${renderStage(stage, game, calc)}
+      ${renderEasterEgg(easterEgg)}
     </main>`;
 }
 
