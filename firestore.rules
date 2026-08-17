@@ -49,6 +49,12 @@ service cloud.firestore {
         && request.resource.data.higherLowerCompletedLetters.hasOnly(['A','B','C','D','E','F','G','H','I','J']);
     }
 
+    function validEasterEggCompletion() {
+      return request.resource.data.easterEggCompleted == true
+        && request.resource.data.easterEggCompletedStage is string
+        && request.resource.data.easterEggCompletedStage in ['tasting', 'higherLower', 'reveal'];
+    }
+
     match /games/{code} {
       allow create: if signedIn()
         && request.resource.data.hostUid == request.auth.uid;
@@ -82,6 +88,15 @@ service cloud.firestore {
                 'higherLowerCompletedLetters'
               ])
               && validScoreboardProgress()
+            )
+            || (
+              resource.data.claimedBy == request.auth.uid
+              && request.resource.data.claimedBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'easterEggCompleted',
+                'easterEggCompletedStage'
+              ])
+              && validEasterEggCompletion()
             )
           )
         );

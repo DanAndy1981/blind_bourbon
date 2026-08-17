@@ -104,6 +104,8 @@ class LocalStore {
       higherLowerProgress: 0,
       higherLowerComplete: false,
       higherLowerCompletedLetters: [],
+      easterEggCompleted: false,
+      easterEggCompletedStage: null,
     })).filter((player) => player.name);
     const activeBottleDrafts = activeBottlesFromDraft(payload.bottles);
     const bottles = activeBottleDrafts.map((bottle, index) => ({
@@ -195,6 +197,16 @@ class LocalStore {
     this.write(code, data);
   }
 
+  async completeEasterEgg(code, playerId, phase) {
+    const data = this.read(code);
+    if (!data) throw new Error('Game not found.');
+    const player = data.players.find((item) => item.id === playerId);
+    if (!player || player.claimedBy !== this.uid) throw new Error('That player card is not yours.');
+    player.easterEggCompleted = true;
+    player.easterEggCompletedStage = phase;
+    this.write(code, data);
+  }
+
   async updateGame(code, patch) {
     const data = this.read(code);
     if (!data) throw new Error('Game not found.');
@@ -225,6 +237,8 @@ class LocalStore {
       higherLowerProgress: 0,
       higherLowerComplete: false,
       higherLowerCompletedLetters: [],
+      easterEggCompleted: false,
+      easterEggCompletedStage: null,
     })).filter((player) => player.name);
 
     const retainedPlayerIds = new Set(data.players.map((player) => player.id));
@@ -292,6 +306,8 @@ class LocalStore {
       higherLowerProgress: 0,
       higherLowerComplete: false,
       higherLowerCompletedLetters: [],
+      easterEggCompleted: false,
+      easterEggCompletedStage: null,
     }));
     data.bottles.forEach((bottle) => { bottle.revealed = false; });
     data.game.phase = 'tasting';
@@ -433,6 +449,8 @@ class FirebaseStore {
         higherLowerProgress: 0,
         higherLowerComplete: false,
         higherLowerCompletedLetters: [],
+        easterEggCompleted: false,
+        easterEggCompletedStage: null,
       });
     });
 
@@ -539,6 +557,14 @@ class FirebaseStore {
     }
   }
 
+  async completeEasterEgg(code, playerId, phase) {
+    const { db, doc, updateDoc } = this.api;
+    await updateDoc(doc(db, 'games', normalizeCode(code), 'players', playerId), {
+      easterEggCompleted: true,
+      easterEggCompletedStage: phase,
+    });
+  }
+
   async updateGame(code, patch) {
     const { db, doc, updateDoc, serverTimestamp } = this.api;
     await updateDoc(doc(db, 'games', normalizeCode(code)), { ...patch, updatedAt: serverTimestamp() });
@@ -581,6 +607,8 @@ class FirebaseStore {
         higherLowerProgress: 0,
         higherLowerComplete: false,
         higherLowerCompletedLetters: [],
+        easterEggCompleted: false,
+        easterEggCompletedStage: null,
       });
     });
     for (const old of playersSnap.docs) {
@@ -651,6 +679,8 @@ class FirebaseStore {
       higherLowerProgress: 0,
       higherLowerComplete: false,
       higherLowerCompletedLetters: [],
+      easterEggCompleted: false,
+      easterEggCompletedStage: null,
     }));
     bottlesSnap.docs.forEach((item) => batch.update(item.ref, { revealed: false }));
     batch.update(doc(db, 'games', code), { phase: 'tasting', updatedAt: serverTimestamp() });
