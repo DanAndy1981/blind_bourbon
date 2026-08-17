@@ -14,6 +14,13 @@ import {
 import { BOTTLE_LETTERS, activeBottlesFromDraft, hasBottleSetupInfo } from './setup.js';
 import { renderTvScoreboard } from './scoreboard.js';
 import {
+  emptyFinaleState,
+  finalePlayersComplete,
+  fullFinaleState,
+  nextFinaleState,
+  normalizeFinaleState,
+} from './finale.js';
+import {
   advanceEasterEggPresses,
   createFinalScoreboardEasterEggView,
   createParticipantEasterEggView,
@@ -47,6 +54,7 @@ const state = {
   saveTimers: new Map(),
   saveStatus: 'saved',
   easterEggSessions: new Map(),
+  lastFinaleCueId: null,
 };
 
 const esc = (value) => String(value ?? '')
@@ -204,8 +212,11 @@ async function loadSnapshot({ silent = false } = {}) {
 async function route() {
   clearInterval(state.pollTimer);
   const params = getParams();
-  state.code = normalizeCode(params.get('game')) || null;
-  state.view = params.get('view') || (state.code ? 'player' : 'home');
+  const nextCode = normalizeCode(params.get('game')) || null;
+  const nextView = params.get('view') || (nextCode ? 'player' : 'home');
+  if (state.code !== nextCode || state.view !== nextView) state.lastFinaleCueId = null;
+  state.code = nextCode;
+  state.view = nextView;
   syncServiceWorkerUpdateSchedule();
   state.loading = Boolean(state.code);
   state.error = null;
@@ -796,13 +807,38 @@ function renderHostHigherLower(calc) {
 }
 
 function renderHostReveal(calc) {
+  const finale = normalizeFinaleState(calc.game, { legacyFinalOpen: false });
   const next = calc.revealOrder.find((bottle) => !bottle.revealed);
+  const revealedPlayers = new Set(finale.revealedPlayerIds);
+  const nextPlayer = [...calc.playerResults]
+    .sort((a, b) => b.rank - a.rank || (b.order ?? 0) - (a.order ?? 0))
+    .find((player) => !revealedPlayers.has(player.id));
+  const allPlayersRevealed = finalePlayersComplete(finale, calc.playerResults);
+  const finalAwardsRevealed = finale.savantRevealed && finale.biggestLoserRevealed;
+  const bottleAwardsRevealed = (!calc.valueChampion || finale.valueChampionRevealed)
+    && (!calc.biggestUpset || finale.biggestUpsetRevealed);
+  const allBottlesRevealed = calc.bottles.length > 0 && calc.bottles.every((bottle) => bottle.revealed);
+  const readyForFinalBoard = allPlayersRevealed && finalAwardsRevealed && bottleAwardsRevealed && allBottlesRevealed;
   return `
     <section class="paper-panel ink-frame reveal-control">
       <div class="section-heading">
-        <div><span class="kicker">Announce from last to first</span><h3>The Reveal Board</h3></div>
-        <button class="btn btn-red" data-action="reveal-next" ${disabled(!next)}>Reveal Next ${next ? `(Sample ${next.letter})` : ''}</button>
+        <div><span class="kicker">You control the room</span><h3>Grand Finale Control</h3></div>
+        <button class="btn btn-gold" data-action="open-scoreboard">Open TV Scoreboard</button>
       </div>
+
+      <div class="finale-scene-tabs" aria-label="Scoreboard reveal scene">
+        ${[
+          ['bottles', '1 · Bottle Finish'],
+          ['players', '2 · Player Standings'],
+          ['awards', '3 · Final Awards'],
+        ].map(([scene, label]) => `<button class="btn ${finale.scene === scene ? 'btn-red' : 'btn-ghost'}" data-action="set-finale-scene" data-scene="${scene}">${label}</button>`).join('')}
+      </div>
+
+      <div class="host-finale-section">
+        <div class="section-heading compact">
+          <div><span class="kicker">Any order you want</span><h4>Bottle Finish & Special Bottles</h4></div>
+          <button class="btn btn-red" data-action="reveal-next" ${disabled(!next)}>Reveal Next ${next ? `(Sample ${next.letter})` : ''}</button>
+        </div>
       ${!calc.revealOrder.length ? `<p class="status-callout warning">The reveal order appears after players submit valid final ranks.</p>` : `
         <div class="reveal-list">
           ${calc.revealOrder.map((bottle) => {
@@ -816,7 +852,74 @@ function renderHostReveal(calc) {
             </div>`;
           }).join('')}
         </div>`}
+        <div class="host-bottle-awards">
+          ${renderHostBottleAward('Value Champion', 'Best blind finish for the money', calc.valueChampion, finale.valueChampionRevealed, 'value-champion', calc)}
+          ${renderHostBottleAward('Biggest Upset', 'Biggest gap between price rank and blind finish', calc.biggestUpset, finale.biggestUpsetRevealed, 'biggest-upset', calc)}
+        </div>
+      </div>
+
+      <div class="host-finale-section">
+        <div class="section-heading compact">
+          <div><span class="kicker">Read the room · pick any position</span><h4>Player Standing Reveals</h4></div>
+          <button class="btn btn-red" data-action="reveal-next-player" ${disabled(!nextPlayer)}>Reveal Next ${nextPlayer ? `(#${nextPlayer.rank})` : ''}</button>
+        </div>
+        <div class="host-player-reveal-list">
+          ${[...calc.playerResults]
+            .sort((a, b) => b.rank - a.rank || (b.order ?? 0) - (a.order ?? 0))
+            .map((player) => renderHostPlayerRevealRow(player, revealedPlayers.has(player.id)))
+            .join('')}
+        </div>
+      </div>
+
+      <div class="host-finale-section host-final-awards-control">
+        <div class="section-heading compact">
+          <div><span class="kicker">After the standings</span><h4>Savant, Basement & Full Board</h4></div>
+          <span>${revealedPlayers.size}/${calc.playerResults.length} player cards revealed</span>
+        </div>
+        ${!allPlayersRevealed ? '<p class="status-callout warning">Reveal every player position before opening the two final award curtains.</p>' : ''}
+        <div class="host-final-award-buttons">
+          ${renderHostFinalAward('Bourbon Savant', calc.savants, calc.savants?.[0]?.total, finale.savantRevealed, 'savant', allPlayersRevealed)}
+          ${renderHostFinalAward('Biggest Loser', calc.biggestLosers, calc.biggestLosers?.[0]?.total, finale.biggestLoserRevealed, 'biggest-loser', allPlayersRevealed)}
+        </div>
+        ${!readyForFinalBoard && finalAwardsRevealed ? '<p class="status-callout warning">Finish the bottle rankings and both special bottle awards before showing the full board.</p>' : ''}
+        <button class="btn btn-xl ${finale.finalBoardRevealed ? 'btn-ghost' : 'btn-gold'} finale-board-button" data-action="${finale.finalBoardRevealed ? 'hide-final-board' : 'reveal-final-board'}" ${disabled(!finale.finalBoardRevealed && !readyForFinalBoard)}>
+          ${finale.finalBoardRevealed ? 'Return to the Reveal' : 'Pull Back the Final Curtain · Show Full Scoreboard'}
+        </button>
+      </div>
     </section>`;
+}
+
+function renderHostBottleAward(title, description, bottle, visible, actionName, calc) {
+  const detail = bottle ? calc.detailsByLetter[bottle.letter] || bottle.detail || {} : {};
+  const canReveal = Boolean(bottle?.revealed);
+  const result = bottle
+    ? `Sample ${bottle.letter} · ${detail.name || 'Mystery bottle'}`
+    : 'Waiting for valid bottle rankings';
+  return `
+    <article class="host-bottle-award ${visible ? 'is-revealed' : ''}">
+      <span class="sample-emblem small">${esc(bottle?.letter || '?')}</span>
+      <div><strong>${esc(title)}</strong><small>${esc(description)}</small><b>${esc(result)}</b></div>
+      <button class="btn btn-small ${visible ? 'btn-ghost' : 'btn-red'}" data-action="${visible ? 'hide-finale-item' : 'reveal-finale-item'}" data-finale-item="${actionName}" ${disabled(!visible && !canReveal)}>${visible ? 'Hide' : 'Reveal'}</button>
+    </article>`;
+}
+
+function renderHostPlayerRevealRow(player, visible) {
+  return `
+    <article class="host-player-reveal-row ${visible ? 'is-revealed' : ''}">
+      <span class="finish-number">${player.rank}</span>
+      <div><strong>${esc(player.name)}</strong><small>H/L ${player.priceHL + player.proofHL} · Price ${player.priceIsRight} · Picks ${player.winnerPick + player.lastPick} · Bonus ${player.bonus}</small></div>
+      <b>${player.total} pts</b>
+      <button class="btn btn-small ${visible ? 'btn-ghost' : 'btn-red'}" data-action="${visible ? 'hide-player-result' : 'reveal-player-result'}" data-player-id="${esc(player.id)}">${visible ? 'Hide' : 'Reveal'}</button>
+    </article>`;
+}
+
+function renderHostFinalAward(title, players, score, visible, item, enabled) {
+  const names = (players || []).map((player) => player.name).join(' & ') || 'Waiting for scores';
+  return `
+    <article class="host-final-award ${visible ? 'is-revealed' : ''}">
+      <div><strong>${esc(title)}</strong><span>${esc(names)} · ${score ?? 0} points</span></div>
+      <button class="btn ${visible ? 'btn-ghost' : 'btn-red'}" data-action="${visible ? 'hide-finale-item' : 'reveal-finale-item'}" data-finale-item="${item}" ${disabled(!visible && !enabled)}>${visible ? 'Close Curtain' : 'Open Curtain'}</button>
+    </article>`;
 }
 
 function renderBonusPanel(calc) {
@@ -881,7 +984,12 @@ function renderScoreboardPage() {
     presses: session.presses,
     dismissed: session.dismissed,
   });
-  return renderTvScoreboard({ snapshot: state.snapshot, calc, joinUrl, qrUrl, easterEgg });
+  const finale = normalizeFinaleState(state.snapshot.game);
+  const activeCue = finale.cueId > 0 && finale.cueId !== state.lastFinaleCueId
+    ? { id: finale.cueId, type: finale.cueType, target: finale.cueTarget }
+    : null;
+  state.lastFinaleCueId = finale.cueId;
+  return renderTvScoreboard({ snapshot: state.snapshot, calc, joinUrl, qrUrl, easterEgg, activeCue });
 }
 
 function getEasterEggSession(surface, phase, playerId = '') {
@@ -902,24 +1010,33 @@ function renderScoreboardBody(hostEmbed = false) {
   const calc = calculateGame(snapshot);
   const game = snapshot.game;
   const scoreboardOpen = phaseAtLeast(game.phase, 'reveal');
+  const finale = normalizeFinaleState(game);
   const champion = calc.winner;
   const savant = calc.savant;
   const valueChampion = calc.valueChampion;
   const upset = calc.biggestUpset;
   const biggestLosers = calc.biggestLosers || [];
   const biggestLoserNames = biggestLosers.map((player) => player.name).join(' & ');
+  const revealedPlayerIds = new Set(finale.revealedPlayerIds);
+  const leaderboardPlayers = finale.finalBoardRevealed
+    ? calc.playerResults
+    : calc.playerResults.filter((player) => revealedPlayerIds.has(player.id));
+  const valueChampionVisible = Boolean(valueChampion?.revealed && finale.valueChampionRevealed);
+  const upsetVisible = Boolean(upset?.revealed && finale.biggestUpsetRevealed);
+  const savantVisible = Boolean(savant && (finale.savantRevealed || finale.finalBoardRevealed));
+  const biggestLoserVisible = Boolean(biggestLoserNames && (finale.biggestLoserRevealed || finale.finalBoardRevealed));
   const columnCount = Math.min(5, Math.max(1, calc.rankedBottles.length));
 
   return `
     <div class="${hostEmbed ? 'scoreboard-host-body' : 'tv-scoreboard-body'} ${scoreboardOpen ? 'is-open' : 'is-waiting'}">
       <section class="tv-awards paper-panel ink-frame">
-        <div class="scoreboard-section-title"><span>Winner Cards</span><small>Appear automatically as the bottles are revealed</small></div>
+        <div class="scoreboard-section-title"><span>Winner Cards</span><small>Follow the host's grand-finale reveals</small></div>
         <div class="champion-grid ${game.phase === 'final' ? 'finale' : ''}">
           ${renderChampionCard('Derby Champion', champion?.revealed ? revealedName(champion, calc.detailsByLetter) : 'Awaiting reveal', champion?.revealed ? `Sample ${champion.letter} · Club place #1` : 'The winning bottle is still under wraps', 'trophy', champion?.revealed)}
-          ${renderChampionCard('Value Champion', valueChampion?.revealed ? revealedName(valueChampion, calc.detailsByLetter) : 'Awaiting reveal', valueChampion?.revealed ? `Value index ${formatNumber(valueChampion.valueIndex, 2)}` : 'Best finish for the money', 'dollar', valueChampion?.revealed)}
-          ${renderChampionCard('Bourbon Savant', scoreboardOpen && savant ? savant.name : 'Leaderboard forming', scoreboardOpen && savant ? `${savant.total} points · Rank #${savant.rank}` : 'Game-show leaderboard winner', 'brain', scoreboardOpen && Boolean(savant))}
-          ${renderChampionCard('Biggest Upset', upset?.revealed ? revealedName(upset, calc.detailsByLetter) : 'Awaiting reveal', upset?.revealed ? `${upset.upsetGap} places from price rank` : 'Price versus blind finish', 'upset', upset?.revealed)}
-          ${renderChampionCard('Biggest Loser', game.phase === 'final' && biggestLoserNames ? biggestLoserNames : 'Awaiting final score', game.phase === 'final' && biggestLosers.length ? `${biggestLosers[0].total} points · welcome to the basement` : 'Poop trophy not yet awarded', 'poop', game.phase === 'final' && Boolean(biggestLoserNames))}
+          ${renderChampionCard('Value Champion', valueChampionVisible ? revealedName(valueChampion, calc.detailsByLetter) : 'Awaiting host reveal', valueChampionVisible ? `Value index ${formatNumber(valueChampion.valueIndex, 2)}` : 'Best finish for the money', 'dollar', valueChampionVisible)}
+          ${renderChampionCard('Bourbon Savant', savantVisible ? savant.name : 'Awaiting host reveal', savantVisible ? `${savant.total} points · Rank #${savant.rank}` : 'Game-show leaderboard winner', 'brain', savantVisible)}
+          ${renderChampionCard('Biggest Upset', upsetVisible ? revealedName(upset, calc.detailsByLetter) : 'Awaiting host reveal', upsetVisible ? `${upset.upsetGap} places from price rank` : 'Price versus blind finish', 'upset', upsetVisible)}
+          ${renderChampionCard('Biggest Loser', biggestLoserVisible ? biggestLoserNames : 'Awaiting host reveal', biggestLoserVisible && biggestLosers.length ? `${biggestLosers[0].total} points · welcome to the basement` : 'Poop trophy not yet awarded', 'poop', biggestLoserVisible)}
         </div>
       </section>
 
@@ -933,9 +1050,9 @@ function renderScoreboardBody(hostEmbed = false) {
 
       <section class="tv-leaderboard paper-panel ink-frame">
         <div class="scoreboard-section-title"><span>Bourbon Savant Leaderboard</span><small>Updates every few seconds</small></div>
-        ${!scoreboardOpen ? `<div class="leaderboard-locked"><strong>Scores are under wraps</strong><span>Player standings unlock with The Reveal.</span></div>` : `
+        ${!scoreboardOpen || !leaderboardPlayers.length ? `<div class="leaderboard-locked"><strong>Scores are under wraps</strong><span>The host reveals each finish when the room is ready.</span></div>` : `
           <div class="leaderboard-list">
-            ${calc.playerResults.map((player) => `<div class="leaderboard-row ${player.rank === 1 ? 'leader' : ''}">
+            ${leaderboardPlayers.map((player) => `<div class="leaderboard-row ${player.rank === 1 ? 'leader' : ''}">
               <span class="rank-circle">${player.rank}</span>
               <strong>${esc(player.name)}</strong>
               <span><small>H / L</small>${player.priceHL + player.proofHL}</span>
@@ -1038,6 +1155,11 @@ function updateResponse(letter, field, value, { immediate = false, rerender = fa
   if (immediate) save();
   else state.saveTimers.set(key, setTimeout(save, SAVE_DELAY));
   if (rerender) render();
+}
+
+async function updateFinale(patch, cue = null, gamePatch = {}) {
+  const finaleState = nextFinaleState(state.snapshot.game, patch, cue);
+  await state.store.updateGame(state.code, { ...gamePatch, finaleState });
 }
 
 root.addEventListener('click', async (event) => {
@@ -1177,16 +1299,30 @@ root.addEventListener('click', async (event) => {
       }]));
     }
     if (nextPhase === 'tasting' || nextPhase === 'setup') patch.publicAverages = {};
+    if (nextPhase === 'reveal' && !state.snapshot.game.finaleState) patch.finaleState = emptyFinaleState();
+    if (nextPhase === 'final') patch.finaleState = fullFinaleState(state.snapshot.game, calc.playerResults);
     await safeAction(async () => {
+      if (nextPhase === 'final') {
+        await Promise.all(calc.bottles.map((bottle) => state.store.revealBottle(state.code, bottle.letter, true)));
+      }
       await state.store.updateGame(state.code, patch);
       await loadSnapshot();
       toast(`Round changed to ${PHASES.find((phase) => phase.id === nextPhase)?.label}.`);
     });
     return;
   }
+  if (action === 'set-finale-scene') {
+    await safeAction(async () => {
+      await updateFinale({ scene: button.dataset.scene });
+      await loadSnapshot();
+    });
+    return;
+  }
   if (action === 'reveal-bottle' || action === 'hide-bottle') {
     await safeAction(async () => {
-      await state.store.revealBottle(state.code, button.dataset.letter, action === 'reveal-bottle');
+      const reveal = action === 'reveal-bottle';
+      await state.store.revealBottle(state.code, button.dataset.letter, reveal);
+      await updateFinale({ scene: 'bottles' }, reveal ? { type: 'bottle', target: button.dataset.letter } : null);
       await loadSnapshot();
     });
     return;
@@ -1197,8 +1333,70 @@ root.addEventListener('click', async (event) => {
     if (!next) return;
     await safeAction(async () => {
       await state.store.revealBottle(state.code, next.letter, true);
+      await updateFinale({ scene: 'bottles' }, { type: 'bottle', target: next.letter });
       await loadSnapshot();
       toast(`Sample ${next.letter} revealed: ${calc.detailsByLetter[next.letter]?.name || 'mystery bottle'}.`);
+    });
+    return;
+  }
+  if (action === 'reveal-finale-item' || action === 'hide-finale-item') {
+    const reveal = action === 'reveal-finale-item';
+    const item = button.dataset.finaleItem;
+    const definitions = {
+      'value-champion': ['valueChampionRevealed', 'valueChampion', 'bottles'],
+      'biggest-upset': ['biggestUpsetRevealed', 'biggestUpset', 'bottles'],
+      savant: ['savantRevealed', 'savant', 'awards'],
+      'biggest-loser': ['biggestLoserRevealed', 'biggestLoser', 'awards'],
+    };
+    const [field, cueType, scene] = definitions[item] || [];
+    if (!field) return;
+    await safeAction(async () => {
+      await updateFinale({ [field]: reveal, scene }, reveal ? { type: cueType } : null);
+      await loadSnapshot();
+    });
+    return;
+  }
+  if (action === 'reveal-player-result' || action === 'hide-player-result') {
+    const finale = normalizeFinaleState(state.snapshot.game, { legacyFinalOpen: false });
+    const ids = new Set(finale.revealedPlayerIds);
+    const playerId = button.dataset.playerId;
+    const reveal = action === 'reveal-player-result';
+    if (reveal) ids.add(playerId);
+    else ids.delete(playerId);
+    await safeAction(async () => {
+      await updateFinale({ revealedPlayerIds: [...ids], scene: 'players' }, reveal ? { type: 'player', target: playerId } : null);
+      await loadSnapshot();
+    });
+    return;
+  }
+  if (action === 'reveal-next-player') {
+    const calc = calculateGame(state.snapshot);
+    const finale = normalizeFinaleState(state.snapshot.game, { legacyFinalOpen: false });
+    const ids = new Set(finale.revealedPlayerIds);
+    const nextPlayer = [...calc.playerResults]
+      .sort((a, b) => b.rank - a.rank || (b.order ?? 0) - (a.order ?? 0))
+      .find((player) => !ids.has(player.id));
+    if (!nextPlayer) return;
+    ids.add(nextPlayer.id);
+    await safeAction(async () => {
+      await updateFinale({ revealedPlayerIds: [...ids], scene: 'players' }, { type: 'player', target: nextPlayer.id });
+      await loadSnapshot();
+      toast(`#${nextPlayer.rank}: ${nextPlayer.name} revealed.`);
+    });
+    return;
+  }
+  if (action === 'reveal-final-board') {
+    await safeAction(async () => {
+      await updateFinale({ finalBoardRevealed: true, scene: 'awards' }, { type: 'finalBoard' }, { phase: 'final' });
+      await loadSnapshot();
+      toast('The full final scoreboard is live.');
+    });
+    return;
+  }
+  if (action === 'hide-final-board') {
+    await safeAction(async () => {
+      await updateFinale({ finalBoardRevealed: false, scene: 'awards' }, null, { phase: 'reveal' });
+      await loadSnapshot();
     });
     return;
   }

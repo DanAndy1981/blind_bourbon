@@ -1,6 +1,7 @@
 import { activeBottlesFromDraft } from './setup.js';
 import { sanitizeTastingNotesByLetter, tastingNotesFromResponses } from './tasting-notes.js';
 import { createPlayerRegistrationSlots, normalizePlayerName } from './registration.js';
+import { emptyFinaleState, fullFinaleState } from './finale.js';
 
 const FIREBASE_VERSION = '12.16.0';
 const LOCAL_PREFIX = 'blind-bourbon-derby::';
@@ -117,6 +118,7 @@ class LocalStore {
         eventDate: payload.eventDate || '',
         theme: payload.theme || '',
         phase: payload.phase || 'setup',
+        finaleState: emptyFinaleState(),
         hostUid: this.uid,
         createdAt,
         updatedAt: createdAt,
@@ -298,12 +300,19 @@ class LocalStore {
     }));
     data.bottles.forEach((bottle) => { bottle.revealed = false; });
     data.game.phase = 'tasting';
+    data.game.finaleState = emptyFinaleState();
     this.write(code, data);
   }
 
   async createDemoGame() {
     const existing = this.read('DEMO26');
-    if (existing) return 'DEMO26';
+    if (existing) {
+      existing.game.phase = 'final';
+      existing.bottles.forEach((bottle) => { bottle.revealed = true; });
+      existing.game.finaleState = fullFinaleState(existing.game, existing.players.filter((player) => player.active !== false));
+      this.write('DEMO26', existing);
+      return 'DEMO26';
+    }
     const players = ['Daniel', 'Mike', 'Owen', 'Chris', 'Ben', 'Josh'].map((name) => ({ name }));
     const bottles = [
       { letter: 'A', name: 'Cumberland Rail', distillery: 'Volunteer Spirits', retailPrice: 34, proof: 92, notes: 'Caramel, orange peel, toasted oak' },
@@ -364,6 +373,7 @@ class LocalStore {
       });
     });
     data.players[0].bonusPoints = 2;
+    data.game.finaleState = fullFinaleState(data.game, data.players.filter((player) => player.active !== false));
     this.write(code, data);
     return code;
   }
@@ -420,6 +430,7 @@ class FirebaseStore {
       eventDate: payload.eventDate || '',
       theme: payload.theme || '',
       phase: payload.phase || 'setup',
+      finaleState: emptyFinaleState(),
       hostUid: this.uid,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -664,7 +675,11 @@ class FirebaseStore {
       easterEggCompletedStage: null,
     }));
     bottlesSnap.docs.forEach((item) => batch.update(item.ref, { revealed: false }));
-    batch.update(doc(db, 'games', code), { phase: 'tasting', updatedAt: serverTimestamp() });
+    batch.update(doc(db, 'games', code), {
+      phase: 'tasting',
+      finaleState: emptyFinaleState(),
+      updatedAt: serverTimestamp(),
+    });
     await batch.commit();
   }
 

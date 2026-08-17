@@ -2,6 +2,7 @@ import { PHASES, formatMoney, formatNumber } from './scoring.js';
 import { renderEasterEgg } from './easter-egg.js';
 import { selectRevealTastingNotes, tastingNotePreview } from './tasting-notes.js';
 import { MAX_PLAYERS } from './registration.js';
+import { finaleCueMatches, normalizeFinaleState } from './finale.js';
 
 const esc = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -17,7 +18,7 @@ export function scoreboardStage(phase) {
   return PHASES.some((item) => item.id === phase) ? phase : 'setup';
 }
 
-export function renderTvScoreboard({ snapshot, calc, joinUrl, qrUrl, easterEgg = null }) {
+export function renderTvScoreboard({ snapshot, calc, joinUrl, qrUrl, easterEgg = null, activeCue = null }) {
   const game = snapshot.game;
   const stage = scoreboardStage(game.phase);
   return `
@@ -25,7 +26,7 @@ export function renderTvScoreboard({ snapshot, calc, joinUrl, qrUrl, easterEgg =
       <div class="tv-bulb-frame" aria-hidden="true"></div>
       ${renderPhaseMarquee(game, stage)}
       ${renderJoinBug(game, joinUrl, qrUrl)}
-      ${renderStage(stage, game, calc)}
+      ${renderStage(stage, game, calc, activeCue)}
       ${renderEasterEgg(easterEgg)}
     </main>`;
 }
@@ -55,11 +56,11 @@ function renderJoinBug(game, joinUrl, qrUrl) {
     </aside>`;
 }
 
-function renderStage(stage, game, calc) {
+function renderStage(stage, game, calc, activeCue) {
   if (stage === 'tasting') return renderTastingStage(calc);
   if (stage === 'higherLower') return renderHigherLowerStage(game, calc);
-  if (stage === 'reveal') return renderRevealStage(calc);
-  if (stage === 'final') return renderFinalStage(calc);
+  if (stage === 'reveal') return renderRevealStage(calc, activeCue);
+  if (stage === 'final') return renderFinalStage(calc, activeCue);
   return renderLobbyStage(calc);
 }
 
@@ -180,31 +181,41 @@ function renderHigherLowerBottle(bottle, averages = {}, players) {
     </article>`;
 }
 
-function renderRevealStage(calc) {
+function renderRevealStage(calc, activeCue) {
+  const finale = normalizeFinaleState(calc.game, { legacyFinalOpen: false });
+  if (finale.scene === 'players') return renderPlayerRevealStage(calc, finale, activeCue);
+  if (finale.scene === 'awards') return renderAwardsRevealStage(calc, finale, activeCue);
+
   const revealOrder = calc.revealOrder.length ? calc.revealOrder : calc.bottleResults;
   const revealedCount = calc.bottles.filter((bottle) => bottle.revealed).length;
   return `
     <section class="tv-stage tv-reveal-stage">
       <div class="tv-reveal-board">
-        <div class="tv-stage-title"><strong>The Derby Finish</strong><span>Revealing last place to first</span></div>
+        <div class="tv-stage-title"><strong>The Derby Finish</strong><span>The host controls every curtain</span></div>
         <div class="tv-reveal-grid" style="--reveal-columns:${Math.min(5, Math.max(1, revealOrder.length))}">
-          ${revealOrder.map((bottle) => renderRevealBottle(bottle, calc)).join('')}
+          ${revealOrder.map((bottle) => renderRevealBottle(bottle, calc, activeCue)).join('')}
         </div>
       </div>
       <aside class="tv-score-rail">
         <div class="tv-vault-meter"><strong>${revealedCount}<small>/${calc.bottles.length}</small></strong><span>Bottles out of the vault</span></div>
-        ${renderCompactAward('Clubhouse Leader', calc.playerResults[0]?.name || 'Calculating…', calc.playerResults[0] ? `${calc.playerResults[0].total} points` : 'Scores update with every reveal', 'star')}
         ${renderCompactAward('Derby Champion', calc.winner?.revealed ? revealedBottleName(calc.winner, calc.detailsByLetter) : 'Still behind the curtain', calc.winner?.revealed ? `Sample ${calc.winner.letter}` : 'First place bottle', 'bottle')}
-        ${renderPlayerLeaderboard(calc.playerResults, true)}
+        ${renderRevealBottleAward('Value Champion', calc.valueChampion, finale.valueChampionRevealed, calc, 'valueChampion', activeCue)}
+        ${renderRevealBottleAward('Biggest Upset', calc.biggestUpset, finale.biggestUpsetRevealed, calc, 'biggestUpset', activeCue)}
+        <p class="tv-reveal-instruction">Next up: player standings, then the Savant and Biggest Loser curtains.</p>
       </aside>
     </section>`;
 }
 
-function renderRevealBottle(bottle, calc) {
+function curtainClasses(open, cueActive = false) {
+  return `tv-curtain-card ${open ? 'is-curtain-open' : 'is-curtain-closed'} ${cueActive ? 'is-curtain-cue' : ''}`;
+}
+
+function renderRevealBottle(bottle, calc, activeCue) {
   const place = bottle.clubPlace || '—';
+  const cueActive = finaleCueMatches(activeCue, 'bottle', bottle.letter);
   if (!bottle.revealed) {
     return `
-      <article class="tv-reveal-card is-hidden">
+      <article class="tv-reveal-card is-hidden ${curtainClasses(false)}">
         <span class="tv-place-chip">#${place}</span><strong>?</strong><p>Behind the curtain</p>
       </article>`;
   }
@@ -217,7 +228,7 @@ function renderRevealBottle(bottle, calc) {
     bottleCount: calc.bottles.length,
   });
   return `
-    <article class="tv-reveal-card is-revealed place-${place}">
+    <article class="tv-reveal-card is-revealed place-${place} ${curtainClasses(true, cueActive)}">
       <span class="tv-place-chip">#${place}</span>
       <b>Sample ${esc(bottle.letter)}</b>
       <h3>${esc(detail.name || `Sample ${bottle.letter}`)}</h3>
@@ -230,42 +241,143 @@ function renderRevealBottle(bottle, calc) {
     </article>`;
 }
 
-function renderFinalStage(calc) {
+function renderRevealBottleAward(title, bottle, visible, calc, cueType, activeCue) {
+  const detail = bottle ? calc.detailsByLetter[bottle.letter] || bottle.detail || {} : {};
+  const detailLine = cueType === 'valueChampion'
+    ? `Value index ${formatNumber(bottle?.valueIndex, 2)}`
+    : `${formatNumber(bottle?.upsetGap, 0)} places from price rank`;
+  return `
+    <article class="tv-special-bottle-award ${curtainClasses(visible, finaleCueMatches(activeCue, cueType))}">
+      <span>${esc(title)}</span>
+      <strong>${visible && bottle ? esc(detail.name || `Sample ${bottle.letter}`) : 'Behind the curtain'}</strong>
+      <small>${visible && bottle ? `Sample ${esc(bottle.letter)} · ${esc(detailLine)}` : 'Special bottle reveal'}</small>
+    </article>`;
+}
+
+function renderPlayerRevealStage(calc, finale, activeCue) {
+  const revealed = new Set(finale.revealedPlayerIds);
+  return `
+    <section class="tv-stage tv-player-reveal-stage">
+      <div class="tv-player-reveal-board">
+        <div class="tv-stage-title"><strong>Contestant Standings</strong><span>Every point · any reveal order</span></div>
+        <div class="tv-player-reveal-grid" style="--player-reveal-columns:${Math.min(5, Math.max(1, calc.playerResults.length))}">
+          ${calc.playerResults.map((player) => renderPlayerRevealCard(player, revealed.has(player.id), activeCue)).join('')}
+        </div>
+      </div>
+      <aside class="tv-player-reveal-rail">
+        <div class="tv-vault-meter"><strong>${revealed.size}<small>/${calc.playerResults.length}</small></strong><span>Standings revealed</span></div>
+        <div class="tv-points-legend">
+          <strong>How the damage happened</strong>
+          <span>H/L · price guess · winner pick · last pick · bonus</span>
+        </div>
+        ${renderRevealBottleAward('Value Champion', calc.valueChampion, finale.valueChampionRevealed, calc, 'valueChampion', activeCue)}
+        ${renderRevealBottleAward('Biggest Upset', calc.biggestUpset, finale.biggestUpsetRevealed, calc, 'biggestUpset', activeCue)}
+        <p class="tv-reveal-instruction">When every ranking is open, the two final award curtains are ready.</p>
+      </aside>
+    </section>`;
+}
+
+function renderPlayerRevealCard(player, visible, activeCue) {
+  return `
+    <article class="tv-player-result-card ${visible ? 'is-revealed' : 'is-hidden'} ${curtainClasses(visible, finaleCueMatches(activeCue, 'player', player.id))}">
+      <span class="tv-player-place">#${player.rank}</span>
+      ${visible ? `
+        <h2>${esc(player.name)}</h2>
+        <strong>${player.total} points</strong>
+        <div class="tv-player-score-breakdown">
+          <span><small>Price H/L</small>${player.priceHL}</span>
+          <span><small>Proof H/L</small>${player.proofHL}</span>
+          <span><small>Price game</small>${player.priceIsRight}</span>
+          <span><small>Top pick</small>${player.winnerPick}</span>
+          <span><small>Last pick</small>${player.lastPick}</span>
+          <span><small>Bonus</small>${player.bonus}</span>
+        </div>` : '<b>?</b><p>Waiting for the host</p>'}
+    </article>`;
+}
+
+function renderAwardsRevealStage(calc, finale, activeCue) {
+  return `
+    <section class="tv-stage tv-awards-reveal-stage">
+      <div class="tv-stage-title"><strong>The Final Two</strong><span>One crown · one trip to the basement</span></div>
+      <div class="tv-awards-reveal-grid">
+        ${renderSavantAward(calc, finale.savantRevealed, activeCue)}
+        ${renderLoserAward(calc, finale.biggestLoserRevealed, activeCue)}
+      </div>
+      <div class="tv-final-board-tease ${finale.savantRevealed && finale.biggestLoserRevealed ? 'is-ready' : ''}">
+        <strong>${finale.savantRevealed && finale.biggestLoserRevealed ? 'The final scoreboard is ready.' : 'Two names remain behind the velvet.'}</strong>
+        <span>The host opens the complete player and bottle rankings after both awards.</span>
+      </div>
+    </section>`;
+}
+
+function renderSavantAward(calc, visible, activeCue) {
   const winners = calc.savants || [];
-  const losers = calc.biggestLosers || [];
   const winningScore = winners[0]?.total ?? 0;
+  return `
+    <article class="tv-final-award is-winner ${curtainClasses(visible, finaleCueMatches(activeCue, 'savant'))}" data-award="bourbon-savant">
+      <div class="tv-award-rays" aria-hidden="true"></div>
+      <span>★ Bourbon Savant${winners.length > 1 ? 's' : ''} ★</span>
+      <h2>${visible && winners.length ? esc(playerNames(winners)) : 'Behind the curtain'}</h2>
+      <strong>${visible ? `${winningScore} points` : '???'}</strong>
+      <p>${visible ? (winners.length > 1 ? 'A dead heat at the top of the barrel.' : 'Tonight’s least-questionable palate.') : 'The crown awaits its questionable owner.'}</p>
+      ${visible ? '<img class="tv-king-moose" src="./assets/moose-king.webp" alt="The same blind-drunk X-eyed Moose crowned king while bourbon bubbles float around him">' : ''}
+    </article>`;
+}
+
+function renderLoserAward(calc, visible, activeCue) {
+  const losers = calc.biggestLosers || [];
   const losingScore = losers[0]?.total ?? 0;
   return `
-    <section class="tv-stage tv-final-stage">
-      <div class="tv-final-awards">
-        <article class="tv-final-award is-winner" data-award="bourbon-savant">
-          <div class="tv-award-rays" aria-hidden="true"></div>
-          <span>★ Bourbon Savant${winners.length > 1 ? 's' : ''} ★</span>
-          <h2>${winners.length ? esc(playerNames(winners)) : 'No winner yet'}</h2>
-          <strong>${winningScore} points</strong>
-          <p>${winners.length > 1 ? 'A dead heat at the top of the barrel.' : 'Tonight’s least-questionable palate.'}</p>
-          <img class="tv-king-moose" src="./assets/moose-king.webp" alt="The same blind-drunk X-eyed Moose crowned king while bourbon bubbles float around him">
-        </article>
-        <article class="tv-final-award is-loser" data-award="biggest-loser">
-          <img src="./assets/biggest-loser-poop.webp" alt="A rubber-hose cartoon poop pile steaming while flies buzz around it">
-          <div><span>Biggest Loser${losers.length > 1 ? 's' : ''}</span>
-            <h2>${losers.length ? esc(playerNames(losers)) : 'No loser yet'}</h2>
-            <strong>${losingScore} points</strong>
-            <p>${losers.length > 1 ? 'The basement has multiple tenants.' : 'A truly heroic misunderstanding of bourbon.'}</p>
-          </div>
-        </article>
+    <article class="tv-final-award is-loser ${curtainClasses(visible, finaleCueMatches(activeCue, 'biggestLoser'))}" data-award="biggest-loser">
+      ${visible ? '<img src="./assets/biggest-loser-poop.webp" alt="A rubber-hose cartoon poop pile steaming while flies buzz around it">' : '<div class="tv-award-question">?</div>'}
+      <div><span>Biggest Loser${losers.length > 1 ? 's' : ''}</span>
+        <h2>${visible && losers.length ? esc(playerNames(losers)) : 'Behind the curtain'}</h2>
+        <strong>${visible ? `${losingScore} points` : '???'}</strong>
+        <p>${visible ? (losers.length > 1 ? 'The basement has multiple tenants.' : 'A truly heroic misunderstanding of bourbon.') : 'The poop trophy is standing by.'}</p>
       </div>
-      <aside class="tv-final-leaderboard">
-        <div class="tv-stage-title"><strong>Final Score</strong><span>The official Bourbon Savant leaderboard</span></div>
-        ${renderPlayerLeaderboard(calc.playerResults)}
-      </aside>
+    </article>`;
+}
+
+function renderFinalStage(calc, activeCue) {
+  const finale = normalizeFinaleState(calc.game);
+  if (!finale.finalBoardRevealed) return renderAwardsRevealStage(calc, finale, activeCue);
+  return `
+    <section class="tv-stage tv-final-stage ${finaleCueMatches(activeCue, 'finalBoard') ? 'is-final-curtain-cue' : ''}">
+      <div class="tv-final-awards">
+        ${renderSavantAward(calc, true, null)}
+        ${renderLoserAward(calc, true, null)}
+      </div>
+      <section class="tv-final-leaderboard">
+        <div class="tv-stage-title"><strong>Official Final Score</strong><span>Every point in the barrel</span></div>
+        ${renderDetailedPlayerLeaderboard(calc.playerResults)}
+      </section>
       <div class="tv-final-finish">
-        <div class="tv-stage-title"><strong>Bottle Finish</strong><span>Best in glass to bar mat</span></div>
+        <div class="tv-stage-title">
+          <strong>Bottle Finish</strong>
+          <span>${esc(finalBottleAwardsSummary(calc))}</span>
+        </div>
         <div class="tv-finish-strip">
           ${calc.rankedBottles.map((bottle) => renderFinalBottle(bottle, calc.detailsByLetter)).join('') || '<p>Waiting for valid final rankings.</p>'}
         </div>
       </div>
     </section>`;
+}
+
+function renderDetailedPlayerLeaderboard(players) {
+  return `
+    <div class="tv-final-score-table">
+      <div class="tv-final-score-head"><span>#</span><span>Player</span><span>Price H/L</span><span>Proof H/L</span><span>Price Game</span><span>Top Pick</span><span>Last Pick</span><span>Bonus</span><span>Total</span></div>
+      ${players.map((player) => `
+        <div class="tv-final-score-row ${player.rank === 1 ? 'is-leader' : ''}">
+          <span>${player.rank}</span><strong>${esc(player.name)}</strong><span>${player.priceHL}</span><span>${player.proofHL}</span><span>${player.priceIsRight}</span><span>${player.winnerPick}</span><span>${player.lastPick}</span><span>${player.bonus}</span><b>${player.total}</b>
+        </div>`).join('')}
+    </div>`;
+}
+
+function finalBottleAwardsSummary(calc) {
+  const valueName = calc.valueChampion ? revealedBottleName(calc.valueChampion, calc.detailsByLetter) : '—';
+  const upsetName = calc.biggestUpset ? revealedBottleName(calc.biggestUpset, calc.detailsByLetter) : '—';
+  return `Value: ${valueName} · Biggest Upset: ${upsetName}`;
 }
 
 function renderFinalBottle(bottle, detailsByLetter) {
