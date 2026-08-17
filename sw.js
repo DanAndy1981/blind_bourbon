@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v8-character-consistency';
+const CACHE_NAME = 'blind-bourbon-derby-v9-do-not-press';
 const APP_SHELL = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const APP_SHELL = [
   './js/store.js',
   './js/scoring.js',
   './js/scoreboard.js',
+  './js/easter-egg.js',
   './js/setup.js',
   './assets/derby-banner.webp',
   './assets/derby-logo.webp',
@@ -17,6 +18,7 @@ const APP_SHELL = [
   './assets/moose-moonshiner.webp',
   './assets/moose-game-show-host.webp',
   './assets/moose-king.webp',
+  './assets/moose-shower-surprise.webp',
   './assets/biggest-loser-poop.webp',
   './assets/favicon.png',
   './assets/icon-192.png',
@@ -34,6 +36,10 @@ self.addEventListener('activate', (event) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then((clients) => Promise.all(clients
+        .filter((client) => new URL(client.url).searchParams.get('view') === 'scoreboard')
+        .map((client) => client.navigate(client.url).catch(() => undefined))))
   );
 });
 
@@ -58,6 +64,24 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
+  // Code must update on the first refresh. The old cache-first path could run
+  // a stale scoreboard bundle once more while quietly refreshing it behind the
+  // scenes, which made new TV features look missing.
+  const isCodeAsset = url.pathname.endsWith('.js')
+    || url.pathname.endsWith('.css')
+    || url.pathname.endsWith('.webmanifest');
+  if (isCodeAsset) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+          return response;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }

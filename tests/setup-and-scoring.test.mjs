@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import {
+  EASTER_EGG_COPY,
+  advanceEasterEggPresses,
+  createEasterEggView,
+  easterEggConfig,
+  isEasterEggStageEligible,
+  renderEasterEgg,
+} from '../js/easter-egg.js';
 import { calculateGame, summarizePlayerProgress } from '../js/scoring.js';
 import { renderTvScoreboard, scoreboardStage } from '../js/scoreboard.js';
 import { activeBottlesFromDraft } from '../js/setup.js';
@@ -48,6 +56,26 @@ function drunkBottleTagFor(html, letter) {
 function classCount(html, className, { prefix = false } = {}) {
   const suffix = prefix ? '(?:\\s|\")' : '\"';
   return [...html.matchAll(new RegExp(`class="${className}${suffix}`, 'g'))].length;
+}
+
+function easterEggFixture({ gameCode = 'EGG001', phase = 'tasting', revealed = false, presses = 0, dismissed = false } = {}) {
+  const bottles = [{ letter: 'A', order: 0, active: true, revealed }];
+  const view = createEasterEggView({ gameCode, phase, bottles, presses, dismissed });
+  const snapshot = {
+    game: { code: gameCode, title: 'Test Derby', phase },
+    players: [{ id: 'p1', name: 'Daniel', order: 0, active: true }],
+    bottles,
+    details: {},
+    responses: [],
+  };
+  const html = renderTvScoreboard({
+    snapshot,
+    calc: calculateGame(snapshot),
+    joinUrl: `https://example.test/?game=${gameCode}`,
+    qrUrl: 'https://example.test/qr.svg',
+    easterEgg: view,
+  });
+  return { html, view };
 }
 
 test('blank bourbon rows are excluded and active rows are capped at A-J', () => {
@@ -153,6 +181,112 @@ test('the TV renderer maps every game phase to an active game-show stage', () =>
     ['setup', 'tasting', 'higherLower', 'reveal', 'final'],
   );
   assert.equal(scoreboardStage('something-old'), 'setup');
+});
+
+test('the Easter egg chooses a deterministic eligible stage and placement from the game code', () => {
+  const expected = {
+    EGG000: { stage: 'postReveal', placement: 'upper-right' },
+    EGG001: { stage: 'tasting', placement: 'upper-left' },
+    EGG002: { stage: 'higherLower', placement: 'lower-right' },
+  };
+
+  for (const [gameCode, config] of Object.entries(expected)) {
+    assert.deepEqual(easterEggConfig(gameCode), config);
+    assert.deepEqual(easterEggConfig(gameCode), config);
+    assert.deepEqual(easterEggConfig(`  ${gameCode.toLowerCase()}  `), config);
+  }
+});
+
+test('the Easter egg appears only in its selected round and post-reveal waits for a bottle', () => {
+  const hiddenBottle = [{ letter: 'A', active: true, revealed: false }];
+  const revealedBottle = [{ letter: 'A', active: true, revealed: true }];
+
+  for (const stage of ['tasting', 'higherLower', 'postReveal']) {
+    assert.equal(isEasterEggStageEligible(stage, { phase: 'setup', bottles: revealedBottle }), false);
+  }
+
+  assert.equal(isEasterEggStageEligible('tasting', { phase: 'tasting', bottles: hiddenBottle }), true);
+  assert.equal(isEasterEggStageEligible('tasting', { phase: 'higherLower', bottles: hiddenBottle }), false);
+  assert.equal(isEasterEggStageEligible('higherLower', { phase: 'higherLower', bottles: hiddenBottle }), true);
+  assert.equal(isEasterEggStageEligible('higherLower', { phase: 'tasting', bottles: hiddenBottle }), false);
+  assert.equal(isEasterEggStageEligible('postReveal', { phase: 'reveal', bottles: hiddenBottle }), false);
+  assert.equal(isEasterEggStageEligible('postReveal', { phase: 'reveal', bottles: revealedBottle }), true);
+  assert.equal(isEasterEggStageEligible('postReveal', { phase: 'final', bottles: revealedBottle }), true);
+  assert.equal(isEasterEggStageEligible('postReveal', { phase: 'final', bottles: hiddenBottle }), false);
+});
+
+test('the Easter egg follows the exact three warnings and preserves concern across rerenders', () => {
+  assert.deepEqual(EASTER_EGG_COPY, [
+    'Do Not Press Me',
+    "Like, Seriously, don't push that button again",
+    'Come On, Dude. Go Away!',
+  ]);
+
+  let presses = 0;
+  for (const [concern, label] of EASTER_EGG_COPY.entries()) {
+    const firstView = createEasterEggView({ gameCode: 'EGG001', phase: 'tasting', presses });
+    const rerenderedView = createEasterEggView({ gameCode: 'EGG001', phase: 'tasting', presses });
+    assert.equal(firstView.eligible, true);
+    assert.equal(firstView.label, label);
+    assert.equal(firstView.concern, concern);
+    assert.equal(firstView.showSurprise, false);
+    assert.deepEqual(rerenderedView, firstView);
+    assert.match(renderEasterEgg(rerenderedView), new RegExp(`concern-${concern}`));
+    presses = advanceEasterEggPresses(presses);
+  }
+
+  assert.equal(presses, 3);
+  assert.equal(advanceEasterEggPresses(presses), 3);
+});
+
+test('the third press opens the shower surprise and dismissal persists until a new game session', () => {
+  const { html, view } = easterEggFixture({ presses: 3 });
+  const alt = imageAltFor(html, 'moose-shower-surprise.webp');
+
+  assert.equal(view.showSurprise, true);
+  assert.match(html, /class="tv-shower-surprise"/);
+  assert.match(html, /role="dialog"/);
+  assert.match(html, /aria-modal="true"/);
+  assert.match(html, /class="tv-shower-surprise-curtain"/);
+  assert.match(html, /class="tv-shower-surprise-image"/);
+  assert.match(html, /class="tv-shower-surprise-dismiss"/);
+  assert.match(html, /data-action="dismiss-tv-easter-egg"/);
+  assert.doesNotMatch(html, /class="tv-do-not-press/);
+  assert.match(alt, /drunk moose/i);
+  assert.match(alt, /shower|curtain/i);
+  assert.match(alt, /surprise|caught|ridiculous/i);
+
+  const dismissedView = createEasterEggView({ gameCode: 'EGG001', phase: 'tasting', presses: 3, dismissed: true });
+  assert.equal(dismissedView.dismissed, true);
+  assert.equal(dismissedView.eligible, false);
+  assert.equal(renderEasterEgg(dismissedView), '');
+
+  const newGameView = createEasterEggView({ gameCode: 'EGG002', phase: 'higherLower', presses: 0, dismissed: false });
+  assert.equal(newGameView.dismissed, false);
+  assert.equal(newGameView.label, EASTER_EGG_COPY[0]);
+  assert.equal(newGameView.concern, 0);
+  assert.equal(newGameView.showSurprise, false);
+  assert.match(renderEasterEgg(newGameView), /data-action="press-tv-easter-egg"/);
+
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  assert.match(appSource, /state\.scoreboardEasterEgg = \{ gameCode: state\.code, presses: 0, dismissed: false \}/);
+  assert.match(appSource, /scoreboardEasterEggSession\(\)\.dismissed = true/);
+});
+
+test('the host results embed has no Easter-egg renderer or controls', () => {
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const hostRendererStart = appSource.indexOf('function renderScoreboardBody(hostEmbed = false)');
+  const hostRendererEnd = appSource.indexOf('function renderStandingCard', hostRendererStart);
+  assert.ok(hostRendererStart >= 0 && hostRendererEnd > hostRendererStart, 'Expected to find the host results renderer');
+  const hostRendererSource = appSource.slice(hostRendererStart, hostRendererEnd);
+
+  assert.match(appSource, /state\.hostTab === 'results' \? renderScoreboardBody\(true\)/);
+  assert.doesNotMatch(hostRendererSource, /EasterEgg|easter-egg|tv-do-not-press|tv-shower-surprise/i);
+
+  const { html } = easterEggFixture({ presses: 0 });
+  assert.match(html, /data-action="press-tv-easter-egg"/);
+  const standaloneWithoutView = renderTvPhase('tasting');
+  assert.doesNotMatch(standaloneWithoutView, /press-tv-easter-egg|tv-do-not-press|tv-shower-surprise/);
 });
 
 test('the setup TV stage renders the moonshiner moose artwork with meaningful alt text', () => {
@@ -315,18 +449,33 @@ test('the final TV stage renders the real biggest-loser artwork and no persisten
   assert.doesNotMatch(html, /tv-scoreboard-header|under wraps/i);
 });
 
-test('the service worker precaches every phase-specific TV artwork asset', () => {
+test('the service worker precaches TV assets and refreshes standalone boards safely', () => {
   const serviceWorkerSource = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 
   for (const asset of [
+    './js/easter-egg.js',
     './assets/moose-bourbon-creek.webp',
     './assets/moose-moonshiner.webp',
     './assets/moose-game-show-host.webp',
     './assets/moose-king.webp',
+    './assets/moose-shower-surprise.webp',
     './assets/biggest-loser-poop.webp',
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v8-character-consistency'/);
-  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v7-moonshiner-progress/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v9-do-not-press'/);
+  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v8-character-consistency/);
+  const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
+  const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);
+  assert.ok(codeAssetStart >= 0 && codeAssetEnd > codeAssetStart, 'Expected a dedicated code-asset fetch path');
+  const codeAssetFetchSource = serviceWorkerSource.slice(codeAssetStart, codeAssetEnd);
+  assert.match(codeAssetFetchSource, /fetch\(request\)[\s\S]*\.catch\(\(\) => caches\.match\(request\)\)/);
+  assert.doesNotMatch(codeAssetFetchSource, /cached \|\| network/);
+  assert.match(serviceWorkerSource, /clients\.matchAll\(\{ type: 'window' \}\)/);
+  assert.match(serviceWorkerSource, /searchParams\.get\('view'\) === 'scoreboard'/);
+  assert.match(serviceWorkerSource, /client\.navigate\(client\.url\)/);
+  assert.match(appSource, /SERVICE_WORKER_UPDATE_INTERVAL = 5 \* 60 \* 1000/);
+  assert.match(appSource, /serviceWorkerRegistration\.update\(\)/);
+  assert.match(appSource, /state\.view !== 'scoreboard' \|\| !serviceWorkerRegistration/);
 });
