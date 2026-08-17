@@ -463,6 +463,20 @@ test('the final TV stage renders the real biggest-loser artwork and no persisten
   assert.doesNotMatch(html, /tv-scoreboard-header|under wraps/i);
 });
 
+test('portrait scoreboards center the King Moose without changing the TV layout', () => {
+  const styles = readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const portraitStart = styles.indexOf('@media (max-aspect-ratio: 4 / 3)');
+  const portraitEnd = styles.indexOf('\n}', portraitStart);
+  assert.ok(portraitStart >= 0 && portraitEnd > portraitStart, 'Expected a portrait scoreboard override');
+  const portraitStyles = styles.slice(portraitStart, portraitEnd);
+
+  assert.match(portraitStyles, /body\.scoreboard-mode \.tv-king-moose/);
+  assert.match(portraitStyles, /top:\s*50%/);
+  assert.match(portraitStyles, /bottom:\s*auto/);
+  assert.match(portraitStyles, /transform:\s*translate\(-50%, -50%\)/);
+  assert.match(portraitStyles, /object-position:\s*center/);
+});
+
 test('participant completion is shared on the player card and reset with the game', () => {
   const storeSource = readFileSync(new URL('../js/store.js', import.meta.url), 'utf8');
   const rulesSource = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
@@ -491,8 +505,8 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v10-participant-hunt'/);
-  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v9-do-not-press/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v11-phone-king-centering'/);
+  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v10-participant-hunt/);
   const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
   const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);
   assert.ok(codeAssetStart >= 0 && codeAssetEnd > codeAssetStart, 'Expected a dedicated code-asset fetch path');

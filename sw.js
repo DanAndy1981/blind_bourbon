@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v10-participant-hunt';
+const CACHE_NAME = 'blind-bourbon-derby-v11-phone-king-centering';
 const APP_SHELL = [
   './',
   './index.html',
