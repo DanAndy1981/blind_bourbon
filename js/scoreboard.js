@@ -1,5 +1,6 @@
 import { PHASES, formatMoney, formatNumber } from './scoring.js';
 import { renderEasterEgg } from './easter-egg.js';
+import { selectRevealTastingNotes, tastingNotePreview } from './tasting-notes.js';
 
 const esc = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -106,12 +107,25 @@ function renderPlayerProgress(player, letters, index) {
       <div class="tv-glass-pips" aria-label="${percent}% complete">
         ${letters.map((letter) => `<span class="${completed.has(letter) ? 'is-done' : ''}">${esc(letter)}</span>`).join('')}
       </div>
+      ${renderPlayerTastingNotes(player, letters)}
       <div class="tv-tasting-progress" style="--tasting-progress:${percent}%" role="progressbar" aria-label="${esc(player.name)} tasting progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-valuetext="${percent}% complete">
         <span class="tv-tasting-progress-track" aria-hidden="true"><i></i></span>
         <strong class="tv-tasting-progress-value">${percent}%</strong>
       </div>
       <small>${player.tastingComplete ? 'Ready for the next round' : 'Nosing · guessing · making things up'}</small>
     </article>`;
+}
+
+function renderPlayerTastingNotes(player, letters) {
+  const notes = player.tastingNotesByLetter || {};
+  const entries = letters
+    .map((letter) => ({ letter, note: tastingNotePreview(notes[letter]) }))
+    .filter((item) => item.note);
+  if (!entries.length) return '<p class="tv-player-notes-empty">Notes hit the board as they type.</p>';
+  return `
+    <ul class="tv-player-notes" aria-label="${esc(player.name)} tasting notes">
+      ${entries.map((item) => `<li><b>${esc(item.letter)}</b><span>${esc(item.note)}</span></li>`).join('')}
+    </ul>`;
 }
 
 function progressBottleMood(percent) {
@@ -175,7 +189,7 @@ function renderRevealStage(calc) {
       <div class="tv-reveal-board">
         <div class="tv-stage-title"><strong>The Derby Finish</strong><span>Revealing last place to first</span></div>
         <div class="tv-reveal-grid" style="--reveal-columns:${Math.min(5, Math.max(1, revealOrder.length))}">
-          ${revealOrder.map((bottle) => renderRevealBottle(bottle, calc.detailsByLetter)).join('')}
+          ${revealOrder.map((bottle) => renderRevealBottle(bottle, calc)).join('')}
         </div>
       </div>
       <aside class="tv-score-rail">
@@ -187,7 +201,7 @@ function renderRevealStage(calc) {
     </section>`;
 }
 
-function renderRevealBottle(bottle, detailsByLetter) {
+function renderRevealBottle(bottle, calc) {
   const place = bottle.clubPlace || '—';
   if (!bottle.revealed) {
     return `
@@ -195,7 +209,14 @@ function renderRevealBottle(bottle, detailsByLetter) {
         <span class="tv-place-chip">#${place}</span><strong>?</strong><p>Behind the curtain</p>
       </article>`;
   }
-  const detail = detailsByLetter[bottle.letter] || bottle.detail || {};
+  const detail = calc.detailsByLetter[bottle.letter] || bottle.detail || {};
+  const tastingNotes = selectRevealTastingNotes({
+    responses: bottle.responses,
+    players: calc.players,
+    gameCode: calc.game.code,
+    bottleLetter: bottle.letter,
+    bottleCount: calc.bottles.length,
+  });
   return `
     <article class="tv-reveal-card is-revealed place-${place}">
       <span class="tv-place-chip">#${place}</span>
@@ -203,6 +224,10 @@ function renderRevealBottle(bottle, detailsByLetter) {
       <h3>${esc(detail.name || `Sample ${bottle.letter}`)}</h3>
       <p>${esc(detail.distillery || 'Mystery distillery')}</p>
       <div><span>${formatMoney(detail.retailPrice, 0)}</span><span>${detail.proof ?? '—'} proof</span></div>
+      ${tastingNotes.length ? `
+        <ul class="tv-reveal-notes" aria-label="Selected tasting notes for Sample ${esc(bottle.letter)}">
+          ${tastingNotes.map((item) => `<li><q>${esc(item.note)}</q><span>— ${esc(item.playerName)}</span></li>`).join('')}
+        </ul>` : ''}
     </article>`;
 }
 

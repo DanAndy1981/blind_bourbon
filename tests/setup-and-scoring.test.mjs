@@ -14,6 +14,11 @@ import {
 import { calculateGame, summarizePlayerProgress } from '../js/scoring.js';
 import { renderTvScoreboard, scoreboardStage } from '../js/scoreboard.js';
 import { activeBottlesFromDraft } from '../js/setup.js';
+import {
+  REVEAL_TASTING_NOTE_MAX_LENGTH,
+  sanitizeTastingNotesByLetter,
+  selectRevealTastingNotes,
+} from '../js/tasting-notes.js';
 
 function renderTvPhase(phase) {
   const snapshot = {
@@ -137,13 +142,14 @@ test('sanitized progress preserves live TV updates without exposing guesses', ()
     bottles,
     responses: [
       { bottleLetter: 'A', buyChoice: 'Hell Yes', priceGuess: 40, proofGuess: 100, finalRank: 1, priceHL: 'Higher', proofHL: 'Lower' },
-      { bottleLetter: 'B', buyChoice: 'Maybe', priceGuess: 55 },
+      { bottleLetter: 'B', buyChoice: 'Maybe', priceGuess: 55, notes: '  Brown sugar   and oak  ' },
     ],
   });
 
   assert.equal(progress.tastingProgress, 0.75);
   assert.equal(progress.tastingComplete, false);
   assert.deepEqual(progress.tastingCompletedLetters, ['A']);
+  assert.deepEqual(progress.tastingNotesByLetter, { B: 'Brown sugar and oak' });
   assert.equal(progress.higherLowerProgress, 0.5);
   assert.deepEqual(progress.higherLowerCompletedLetters, ['A']);
 
@@ -161,7 +167,33 @@ test('sanitized progress preserves live TV updates without exposing guesses', ()
 
   assert.equal(result.playerResults[0].tastingProgress, 0.75);
   assert.deepEqual(result.playerResults[0].tastingCompletedLetters, ['A']);
+  assert.deepEqual(result.playerResults[0].tastingNotesByLetter, { B: 'Brown sugar and oak' });
   assert.equal(result.playerResults[0].total, 0);
+});
+
+test('public tasting notes are sanitized and reveal selections stay stable and card-sized', () => {
+  const sanitized = sanitizeTastingNotesByLetter({
+    A: '  caramel   bomb  ',
+    B: 'x'.repeat(400),
+    Z: 'not a real sample',
+    C: '',
+  });
+  assert.equal(sanitized.A, 'caramel bomb');
+  assert.equal(sanitized.B.length, 280);
+  assert.deepEqual(Object.keys(sanitized), ['A', 'B']);
+
+  const players = Array.from({ length: 7 }, (_, index) => ({ id: `p${index + 1}`, name: `Player ${index + 1}` }));
+  const responses = players.map((player, index) => ({
+    playerId: player.id,
+    notes: index === 6 ? 'A'.repeat(REVEAL_TASTING_NOTE_MAX_LENGTH + 1) : `Short comment number ${index + 1}`,
+  }));
+  const input = { responses, players, gameCode: 'NOTES1', bottleLetter: 'A', bottleCount: 3 };
+  const first = selectRevealTastingNotes(input);
+  const second = selectRevealTastingNotes(input);
+  assert.deepEqual(first, second, 'Automatic scoreboard refreshes must not reshuffle the comments');
+  assert.equal(first.length, 4);
+  assert.ok(first.every((item) => item.note.length <= REVEAL_TASTING_NOTE_MAX_LENGTH));
+  assert.equal(selectRevealTastingNotes({ ...input, bottleCount: 10 }).length, 2);
 });
 
 test('final results identify every player tied for the biggest-loser award', () => {
@@ -382,6 +414,63 @@ test('tasting uses compact semantic progress instead of either drunk-bottle trea
   }
 });
 
+test('Taste cards show each player’s published notes without loading private guesses', () => {
+  const snapshot = {
+    game: { code: 'NOTES1', title: 'Notes Derby', phase: 'tasting' },
+    players: [{
+      id: 'p1', name: 'Daniel', order: 0, active: true,
+      tastingProgress: 0.5, tastingCompletedLetters: ['A'],
+      tastingNotesByLetter: { A: 'Cherry cola', B: 'Hot cinnamon finish' },
+    }],
+    bottles: ['A', 'B'].map((letter, order) => ({ letter, order, active: true, revealed: false })),
+    details: {},
+    responses: [],
+  };
+  const html = renderTvScoreboard({
+    snapshot,
+    calc: calculateGame(snapshot),
+    joinUrl: 'https://example.test/?game=NOTES1',
+    qrUrl: 'https://example.test/qr.svg',
+  });
+
+  assert.match(html, /class="tv-player-notes"/);
+  assert.match(html, /Cherry cola/);
+  assert.match(html, /Hot cinnamon finish/);
+  assert.doesNotMatch(html, /priceGuess|proofGuess|finalRank/);
+});
+
+test('revealed bottle cards show stable short comments and hide long or unrevealed notes', () => {
+  const players = Array.from({ length: 6 }, (_, index) => ({ id: `p${index + 1}`, name: `Palate ${index + 1}`, order: index, active: true }));
+  const bottle = { letter: 'A', order: 0, active: true, revealed: true };
+  const responses = players.map((player, index) => ({
+    playerId: player.id,
+    bottleLetter: 'A',
+    finalRank: 1,
+    notes: index === 5 ? 'A'.repeat(REVEAL_TASTING_NOTE_MAX_LENGTH + 20) : `Funny short note ${index + 1}`,
+  }));
+  const snapshot = {
+    game: { code: 'NOTES1', title: 'Notes Derby', phase: 'reveal' },
+    players,
+    bottles: [bottle],
+    details: { A: { letter: 'A', name: 'The Revealed Bourbon', distillery: 'Test Still', retailPrice: 45, proof: 100 } },
+    responses,
+  };
+  const renderSnapshot = (nextSnapshot) => renderTvScoreboard({
+    snapshot: nextSnapshot,
+    calc: calculateGame(nextSnapshot),
+    joinUrl: 'https://example.test/?game=NOTES1',
+    qrUrl: 'https://example.test/qr.svg',
+  });
+  const revealedHtml = renderSnapshot(snapshot);
+  assert.match(revealedHtml, /class="tv-reveal-notes"/);
+  assert.equal(classCount(revealedHtml, 'tv-reveal-notes'), 1);
+  assert.equal((revealedHtml.match(/Funny short note/g) || []).length, 4);
+  assert.doesNotMatch(revealedHtml, new RegExp(`A{${REVEAL_TASTING_NOTE_MAX_LENGTH + 20}}`));
+
+  const hiddenSnapshot = { ...snapshot, bottles: [{ ...bottle, revealed: false }] };
+  assert.doesNotMatch(renderSnapshot(hiddenSnapshot), /tv-reveal-notes|Funny short note/);
+});
+
 test('Higher or Lower renders one semantic drunken bottle per active bourbon', () => {
   const moodCases = [
     { letter: 'A', percent: 0, locked: 0, mood: 'sober' },
@@ -488,6 +577,8 @@ test('participant completion is shared on the player card and reset with the gam
   assert.match(rulesSource, /validEasterEggCompletion\(\)/);
   assert.match(rulesSource, /affectedKeys\(\)\.hasOnly\(\[[\s\S]*'easterEggCompleted'[\s\S]*'easterEggCompletedStage'/);
   assert.match(rulesSource, /request\.resource\.data\.easterEggCompletedStage in \['tasting', 'higherLower', 'reveal'\]/);
+  assert.match(rulesSource, /validTastingNotes\(request\.resource\.data\.tastingNotesByLetter\)/);
+  assert.match(rulesSource, /affectedKeys\(\)\.hasOnly\(\[[\s\S]*'tastingNotesByLetter'/);
 });
 
 test('the service worker precaches TV assets and refreshes standalone boards safely', () => {
@@ -496,6 +587,7 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
 
   for (const asset of [
     './js/easter-egg.js',
+    './js/tasting-notes.js',
     './assets/moose-bourbon-creek.webp',
     './assets/moose-moonshiner.webp',
     './assets/moose-game-show-host.webp',
@@ -505,8 +597,8 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v11-phone-king-centering'/);
-  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v10-participant-hunt/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v12-tasting-notes'/);
+  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v11-phone-king-centering/);
   const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
   const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);
   assert.ok(codeAssetStart >= 0 && codeAssetEnd > codeAssetStart, 'Expected a dedicated code-asset fetch path');

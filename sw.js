@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v11-phone-king-centering';
+const CACHE_NAME = 'blind-bourbon-derby-v12-tasting-notes';
 const APP_SHELL = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const APP_SHELL = [
   './js/scoring.js',
   './js/scoreboard.js',
   './js/easter-egg.js',
+  './js/tasting-notes.js',
   './js/setup.js',
   './assets/derby-banner.webp',
   './assets/derby-logo.webp',

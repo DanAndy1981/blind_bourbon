@@ -1,3 +1,5 @@
+import { sanitizeTastingNotesByLetter, tastingNotesFromResponses } from './tasting-notes.js';
+
 export const PHASES = [
   { id: 'setup', label: 'Setup', short: 'Setup' },
   { id: 'tasting', label: 'Blind Tasting', short: 'Taste' },
@@ -87,6 +89,7 @@ export function summarizePlayerProgress({ bottles = [], responses = [] } = {}) {
     tastingProgress: tastingTotalFields ? tastingCompletedFields / tastingTotalFields : 0,
     tastingComplete: tastingCompletedLetters.length === activeBottles.length && rankSetValid,
     tastingCompletedLetters,
+    tastingNotesByLetter: tastingNotesFromResponses({ bottles: activeBottles, responses: playerResponses }),
     rankSetValid,
     higherLowerProgress: higherLowerTotalFields ? higherLowerCompletedFields / higherLowerTotalFields : 0,
     higherLowerComplete: higherLowerCompletedLetters.length === activeBottles.length,
@@ -108,6 +111,7 @@ function publishedProgress(player, calculated, hasResponses) {
     tastingProgress: bounded(player.tastingProgress, calculated.tastingProgress),
     tastingComplete: typeof player.tastingComplete === 'boolean' ? player.tastingComplete : calculated.tastingComplete,
     tastingCompletedLetters: letters(player.tastingCompletedLetters, calculated.tastingCompletedLetters),
+    tastingNotesByLetter: sanitizeTastingNotesByLetter(player.tastingNotesByLetter),
     higherLowerProgress: bounded(player.higherLowerProgress, calculated.higherLowerProgress),
     higherLowerComplete: typeof player.higherLowerComplete === 'boolean' ? player.higherLowerComplete : calculated.higherLowerComplete,
     higherLowerCompletedLetters: letters(player.higherLowerCompletedLetters, calculated.higherLowerCompletedLetters),

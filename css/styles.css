@@ -477,7 +477,7 @@ body.scoreboard-mode .scoreboard-shell { width: 100vw; height: 100vh; height: 10
 
 .tv-tasting-stage { display: grid; grid-template-columns: minmax(0, 1fr) calc(19 * var(--tv-u)); gap: calc(1 * var(--tv-u)); }
 .tv-progress-grid { min-width: 0; min-height: 0; display: grid; grid-template-columns: repeat(var(--player-columns), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: calc(.65 * var(--tv-u)); }
-.tv-player-progress { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto auto auto; align-content: center; gap: calc(.65 * var(--tv-u)); padding: calc(.9 * var(--tv-u)); overflow: hidden; border: calc(.24 * var(--tv-u)) solid #d7a541; border-radius: calc(.75 * var(--tv-u)); background: linear-gradient(155deg, rgba(9,40,63,.98), rgba(8,20,34,.96)); box-shadow: inset 0 0 0 calc(.2 * var(--tv-u)) #173f5b, 0 calc(.3 * var(--tv-u)) 0 #050b11; }
+.tv-player-progress { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; align-content: stretch; gap: calc(.52 * var(--tv-u)); padding: calc(.75 * var(--tv-u)); overflow: hidden; border: calc(.24 * var(--tv-u)) solid #d7a541; border-radius: calc(.75 * var(--tv-u)); background: linear-gradient(155deg, rgba(9,40,63,.98), rgba(8,20,34,.96)); box-shadow: inset 0 0 0 calc(.2 * var(--tv-u)) #173f5b, 0 calc(.3 * var(--tv-u)) 0 #050b11; }
 .tv-player-progress.is-ready { color: #17130f; border-color: #fff2a5; background: linear-gradient(155deg, #f5ca61, #d98d25); animation: tvReadyPulse 1.9s ease-in-out infinite; }
 .tv-player-heading { min-width: 0; display: grid; grid-template-columns: calc(2.1 * var(--tv-u)) minmax(0, 1fr) auto; align-items: center; gap: calc(.45 * var(--tv-u)); }
 .tv-player-heading > span { width: calc(2 * var(--tv-u)); height: calc(2 * var(--tv-u)); display: grid; place-items: center; border-radius: 50%; color: white; background: var(--red); border: 2px solid #120d0a; font-family: var(--font-display); font-size: calc(.95 * var(--tv-u)); }
@@ -488,6 +488,47 @@ body.scoreboard-mode .scoreboard-shell { width: 100vw; height: 100vh; height: 10
 .tv-glass-pips span { height: calc(2.1 * var(--tv-u)); display: grid; place-items: center; border: 2px solid rgba(255,245,214,.45); border-radius: 50% 50% 42% 42%; color: rgba(255,245,214,.6); background: rgba(0,0,0,.28); font-family: var(--font-display); font-size: calc(.85 * var(--tv-u)); }
 .tv-glass-pips span.is-done { color: #17130f; background: linear-gradient(#f8db84 0 45%, #ad5724 46% 100%); border-color: #fff3bd; box-shadow: 0 0 calc(.55 * var(--tv-u)) rgba(246,196,91,.62); }
 .is-ready .tv-glass-pips span { color: #17130f; border-color: #6d331c; }
+.tv-player-notes {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: center;
+  gap: calc(.24 * var(--tv-u));
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+.tv-player-notes li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: calc(1.45 * var(--tv-u)) minmax(0, 1fr);
+  align-items: center;
+  gap: calc(.22 * var(--tv-u));
+  padding: calc(.2 * var(--tv-u)) calc(.28 * var(--tv-u));
+  overflow: hidden;
+  border: 1px solid rgba(246,220,145,.55);
+  border-radius: calc(.28 * var(--tv-u));
+  background: rgba(255,245,215,.09);
+  font-size: calc(.72 * var(--tv-u));
+  line-height: 1.05;
+}
+.tv-player-notes b { color: var(--gold-light); font-family: var(--font-display); text-align: center; }
+.tv-player-notes span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-ready .tv-player-notes li { border-color: rgba(89,42,24,.48); background: rgba(255,247,211,.26); }
+.is-ready .tv-player-notes b { color: #741f18; }
+.tv-player-notes-empty {
+  align-self: center;
+  margin: 0;
+  color: #b9a98c;
+  font-family: var(--font-condensed);
+  font-size: calc(.75 * var(--tv-u));
+  font-weight: 800;
+  text-align: center;
+  text-transform: uppercase;
+}
+.is-ready .tv-player-notes-empty { color: #6a3b24; }
 .tv-tasting-progress {
   position: relative;
   isolation: isolate;
@@ -841,6 +882,33 @@ body.scoreboard-mode .scoreboard-shell { width: 100vw; height: 100vh; height: 10
 .tv-reveal-card h3 { max-width: 100%; margin: 0; overflow: hidden; font-family: var(--font-display); font-size: calc(1.08 * var(--tv-u)); line-height: 1.05; text-overflow: ellipsis; }
 .tv-reveal-card > p { max-width: 100%; margin: 0; overflow: hidden; color: #6e4b2b; font-size: calc(.61 * var(--tv-u)); text-overflow: ellipsis; white-space: nowrap; }
 .tv-reveal-card > div { width: 100%; display: flex; justify-content: space-between; gap: calc(.25 * var(--tv-u)); padding-top: calc(.3 * var(--tv-u)); border-top: 1px solid rgba(23,19,15,.35); font-family: var(--font-condensed); font-size: calc(.72 * var(--tv-u)); font-weight: 900; }
+.tv-reveal-notes {
+  width: 100%;
+  min-height: 0;
+  display: grid;
+  gap: calc(.22 * var(--tv-u));
+  align-content: center;
+  margin: calc(.08 * var(--tv-u)) 0 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+.tv-reveal-notes li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: calc(.22 * var(--tv-u));
+  padding: calc(.2 * var(--tv-u)) calc(.3 * var(--tv-u));
+  overflow: hidden;
+  border-radius: calc(.24 * var(--tv-u));
+  background: rgba(255,248,218,.45);
+  font-size: calc(.63 * var(--tv-u));
+  line-height: 1.08;
+  text-align: left;
+}
+.tv-reveal-notes q { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-reveal-notes span { color: #7a2c20; font-family: var(--font-condensed); font-weight: 900; white-space: nowrap; }
 .tv-score-rail { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); gap: calc(.5 * var(--tv-u)); }
 .tv-vault-meter { display: flex; align-items: center; justify-content: center; gap: calc(.7 * var(--tv-u)); padding: calc(.55 * var(--tv-u)); color: #17130f; background: var(--gold-light); border: 2px solid #17130f; border-radius: calc(.55 * var(--tv-u)); }
 .tv-vault-meter strong { font-family: var(--font-display); font-size: calc(2.1 * var(--tv-u)); line-height: 1; }
@@ -1234,6 +1302,8 @@ body.scoreboard-mode .tv-player-heading > span { grid-row: 1 / 3; font-size: cal
 body.scoreboard-mode .tv-player-heading strong { overflow: visible; overflow-wrap: anywhere; font-size: calc(1.75 * var(--tv-u)); line-height: .96; text-overflow: clip; white-space: normal; }
 body.scoreboard-mode .tv-player-heading b { grid-column: 2; justify-self: start; font-size: calc(1.02 * var(--tv-u)); letter-spacing: .025em; line-height: 1; }
 body.scoreboard-mode .tv-glass-pips span { font-size: calc(1.05 * var(--tv-u)); }
+body.scoreboard-mode .tv-player-notes li { font-size: calc(.78 * var(--tv-u)); }
+body.scoreboard-mode .tv-player-notes-empty { font-size: calc(.9 * var(--tv-u)); }
 body.scoreboard-mode .tv-player-progress > small { overflow: visible; font-size: calc(1 * var(--tv-u)); letter-spacing: .025em; line-height: 1.05; text-align: center; text-overflow: clip; white-space: normal; }
 body.scoreboard-mode .tv-ready-counter span,
 body.scoreboard-mode .tv-tasting-rail p { font-size: calc(1.05 * var(--tv-u)); line-height: 1.12; }
@@ -1257,6 +1327,7 @@ body.scoreboard-mode .tv-reveal-card > b { font-size: calc(1 * var(--tv-u)); fon
 body.scoreboard-mode .tv-reveal-card h3 { font-size: calc(1.42 * var(--tv-u)); line-height: 1.03; }
 body.scoreboard-mode .tv-reveal-card > p { font-size: calc(.88 * var(--tv-u)); }
 body.scoreboard-mode .tv-reveal-card > div { font-size: calc(1 * var(--tv-u)); }
+body.scoreboard-mode .tv-reveal-notes li { font-size: calc(.76 * var(--tv-u)); }
 body.scoreboard-mode .tv-vault-meter span { font-size: calc(.88 * var(--tv-u)); line-height: 1.02; }
 body.scoreboard-mode .tv-compact-award span { font-size: calc(.88 * var(--tv-u)); }
 body.scoreboard-mode .tv-compact-award strong { font-size: calc(1.2 * var(--tv-u)); line-height: 1.05; }

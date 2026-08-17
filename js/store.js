@@ -1,4 +1,5 @@
 import { activeBottlesFromDraft } from './setup.js';
+import { sanitizeTastingNotesByLetter, tastingNotesFromResponses } from './tasting-notes.js';
 
 const FIREBASE_VERSION = '12.16.0';
 const LOCAL_PREFIX = 'blind-bourbon-derby::';
@@ -36,6 +37,7 @@ function normalizeScoreboardProgress(progress) {
     tastingProgress: bounded(progress.tastingProgress),
     tastingComplete: Boolean(progress.tastingComplete),
     tastingCompletedLetters: letters(progress.tastingCompletedLetters),
+    tastingNotesByLetter: sanitizeTastingNotesByLetter(progress.tastingNotesByLetter),
     higherLowerProgress: bounded(progress.higherLowerProgress),
     higherLowerComplete: Boolean(progress.higherLowerComplete),
     higherLowerCompletedLetters: letters(progress.higherLowerCompletedLetters),
@@ -101,6 +103,7 @@ class LocalStore {
       tastingProgress: 0,
       tastingComplete: false,
       tastingCompletedLetters: [],
+      tastingNotesByLetter: {},
       higherLowerProgress: 0,
       higherLowerComplete: false,
       higherLowerCompletedLetters: [],
@@ -234,6 +237,7 @@ class LocalStore {
       tastingProgress: 0,
       tastingComplete: false,
       tastingCompletedLetters: [],
+      tastingNotesByLetter: {},
       higherLowerProgress: 0,
       higherLowerComplete: false,
       higherLowerCompletedLetters: [],
@@ -303,6 +307,7 @@ class LocalStore {
       tastingProgress: 0,
       tastingComplete: false,
       tastingCompletedLetters: [],
+      tastingNotesByLetter: {},
       higherLowerProgress: 0,
       higherLowerComplete: false,
       higherLowerCompletedLetters: [],
@@ -367,6 +372,10 @@ class LocalStore {
         tastingProgress: 1,
         tastingComplete: true,
         tastingCompletedLetters: data.bottles.map((bottle) => bottle.letter),
+        tastingNotesByLetter: tastingNotesFromResponses({
+          bottles: data.bottles,
+          responses: data.responses.filter((response) => response.playerId === player.id),
+        }),
         higherLowerProgress: 1,
         higherLowerComplete: true,
         higherLowerCompletedLetters: data.bottles.map((bottle) => bottle.letter),
@@ -446,6 +455,7 @@ class FirebaseStore {
         tastingProgress: 0,
         tastingComplete: false,
         tastingCompletedLetters: [],
+        tastingNotesByLetter: {},
         higherLowerProgress: 0,
         higherLowerComplete: false,
         higherLowerCompletedLetters: [],
@@ -604,6 +614,7 @@ class FirebaseStore {
         tastingProgress: 0,
         tastingComplete: false,
         tastingCompletedLetters: [],
+        tastingNotesByLetter: {},
         higherLowerProgress: 0,
         higherLowerComplete: false,
         higherLowerCompletedLetters: [],
@@ -676,6 +687,7 @@ class FirebaseStore {
       tastingProgress: 0,
       tastingComplete: false,
       tastingCompletedLetters: [],
+      tastingNotesByLetter: {},
       higherLowerProgress: 0,
       higherLowerComplete: false,
       higherLowerCompletedLetters: [],

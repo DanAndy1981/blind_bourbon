@@ -40,6 +40,7 @@ service cloud.firestore {
         && request.resource.data.tastingCompletedLetters is list
         && request.resource.data.tastingCompletedLetters.size() <= 10
         && request.resource.data.tastingCompletedLetters.hasOnly(['A','B','C','D','E','F','G','H','I','J'])
+        && validTastingNotes(request.resource.data.tastingNotesByLetter)
         && request.resource.data.higherLowerProgress is number
         && request.resource.data.higherLowerProgress >= 0
         && request.resource.data.higherLowerProgress <= 1
@@ -47,6 +48,22 @@ service cloud.firestore {
         && request.resource.data.higherLowerCompletedLetters is list
         && request.resource.data.higherLowerCompletedLetters.size() <= 10
         && request.resource.data.higherLowerCompletedLetters.hasOnly(['A','B','C','D','E','F','G','H','I','J']);
+    }
+
+    function validTastingNotes(notes) {
+      return notes is map
+        && notes.size() <= 10
+        && notes.keys().hasOnly(['A','B','C','D','E','F','G','H','I','J'])
+        && (!notes.keys().hasAny(['A']) || (notes.A is string && notes.A.size() <= 280))
+        && (!notes.keys().hasAny(['B']) || (notes.B is string && notes.B.size() <= 280))
+        && (!notes.keys().hasAny(['C']) || (notes.C is string && notes.C.size() <= 280))
+        && (!notes.keys().hasAny(['D']) || (notes.D is string && notes.D.size() <= 280))
+        && (!notes.keys().hasAny(['E']) || (notes.E is string && notes.E.size() <= 280))
+        && (!notes.keys().hasAny(['F']) || (notes.F is string && notes.F.size() <= 280))
+        && (!notes.keys().hasAny(['G']) || (notes.G is string && notes.G.size() <= 280))
+        && (!notes.keys().hasAny(['H']) || (notes.H is string && notes.H.size() <= 280))
+        && (!notes.keys().hasAny(['I']) || (notes.I is string && notes.I.size() <= 280))
+        && (!notes.keys().hasAny(['J']) || (notes.J is string && notes.J.size() <= 280));
     }
 
     function validEasterEggCompletion() {
@@ -83,6 +100,7 @@ service cloud.firestore {
                 'tastingProgress',
                 'tastingComplete',
                 'tastingCompletedLetters',
+                'tastingNotesByLetter',
                 'higherLowerProgress',
                 'higherLowerComplete',
                 'higherLowerCompletedLetters'
