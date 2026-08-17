@@ -5,6 +5,7 @@ const APP_SHELL = [
   './css/styles.css',
   './css/tv-legibility.css',
   './js/app.js',
+  './js/registration-draft.js',
   './js/claim-guard.js',
   './js/store.js',
   './js/registration.js',
