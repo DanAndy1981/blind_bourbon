@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v20-rules-and-portrait-egg';
+const CACHE_NAME = 'blind-bourbon-derby-v21-master-reset';
 const APP_SHELL = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const APP_SHELL = [
   './js/app.js',
   './js/registration-draft.js',
   './js/claim-guard.js',
+  './js/master-reset.js',
   './js/store.js',
   './js/registration.js',
   './js/finale.js',
