@@ -1,9 +1,10 @@
-const CACHE_NAME = 'blind-bourbon-derby-v19-strengthening-pass';
+const CACHE_NAME = 'blind-bourbon-derby-v20-rules-and-portrait-egg';
 const APP_SHELL = [
   './',
   './index.html',
   './css/styles.css',
   './css/tv-legibility.css',
+  './css/rules-and-easter-egg.css',
   './js/app.js',
   './js/registration-draft.js',
   './js/claim-guard.js',
