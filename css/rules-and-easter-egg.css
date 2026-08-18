@@ -1,0 +1,195 @@
+/*
+  Rules-card readability and portrait Easter-egg framing.
+
+  The setup board is viewed from couch distance, so its rules use a simpler
+  condensed face, heavier weight, and larger minimum sizes than the decorative
+  poster copy. When a sixth contestant creates a second check-in row, the rule
+  cards compact slightly rather than allowing the whole board to overflow.
+*/
+
+/* Big-screen setup / lobby rules */
+body.scoreboard-mode .tv-lobby-stage {
+  grid-template-columns: minmax(0, 1.62fr) minmax(calc(18 * var(--tv-u)), .38fr);
+  gap: clamp(14px, 1vw, 24px);
+}
+
+body.scoreboard-mode .tv-lobby-copy {
+  padding: clamp(24px, 1.6vw, 38px);
+}
+
+body.scoreboard-mode .tv-drunk-rules {
+  gap: clamp(9px, .65vw, 15px);
+  margin-top: clamp(12px, .8vw, 18px);
+}
+
+body.scoreboard-mode .tv-drunk-rule {
+  grid-template-columns: clamp(58px, 3.9vw, 82px) minmax(0, 1fr);
+  gap: clamp(9px, .65vw, 15px);
+  padding: clamp(10px, .72vw, 16px);
+  border-width: 3px;
+  border-color: rgba(255, 232, 166, .82);
+  background: rgba(3, 11, 21, .72);
+  box-shadow: inset 0 0 0 1px rgba(255, 242, 199, .11), 0 3px 0 rgba(0, 0, 0, .42);
+}
+
+body.scoreboard-mode .tv-drunk-rule > b {
+  min-height: clamp(54px, 3.5vw, 74px);
+  padding: clamp(5px, .32vw, 8px);
+  font-family: var(--font-condensed);
+  font-size: clamp(20px, 1.25vw, 28px);
+  font-weight: 900;
+  letter-spacing: .015em;
+  line-height: .95;
+}
+
+body.scoreboard-mode .tv-drunk-rule strong {
+  color: #fff3c9;
+  font-family: var(--font-condensed);
+  font-size: clamp(22px, 1.42vw, 31px);
+  font-weight: 900;
+  letter-spacing: .012em;
+  line-height: 1.05;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, .62);
+  text-wrap: balance;
+}
+
+body.scoreboard-mode .tv-drunk-rule span {
+  color: #fff7df;
+  font-family: var(--font-body);
+  font-size: clamp(19px, 1.18vw, 26px);
+  font-weight: 600;
+  line-height: 1.24;
+  text-wrap: pretty;
+}
+
+/* Six contestants create a second check-in row. Keep the rules readable, but
+   reclaim enough vertical room for all ten players without scrolling. */
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-lobby-copy {
+  padding: clamp(18px, 1.15vw, 28px);
+}
+
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-lobby-copy h1 {
+  margin-block: clamp(4px, .28vw, 8px);
+  font-size: clamp(40px, 3.55vw, 68px);
+}
+
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-lobby-copy > p {
+  font-size: clamp(16px, .96vw, 21px);
+  line-height: 1.22;
+}
+
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-lobby-count {
+  margin-block: clamp(6px, .48vw, 10px);
+}
+
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-drunk-rules {
+  gap: clamp(6px, .42vw, 10px);
+  margin-top: clamp(6px, .45vw, 10px);
+}
+
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-drunk-rule {
+  grid-template-columns: clamp(52px, 3.2vw, 68px) minmax(0, 1fr);
+  gap: clamp(6px, .42vw, 10px);
+  padding: clamp(7px, .5vw, 11px);
+}
+
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-drunk-rule > b {
+  min-height: clamp(46px, 2.8vw, 60px);
+  font-size: clamp(18px, 1.05vw, 23px);
+}
+
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-drunk-rule strong {
+  font-size: clamp(20px, 1.18vw, 26px);
+}
+
+body.scoreboard-mode .tv-gameboard:has(.tv-contestant-strip > div:nth-child(6)) .tv-drunk-rule span {
+  font-size: clamp(17px, 1vw, 22px);
+  line-height: 1.16;
+}
+
+/* Participant waiting/setup rules on phones */
+.participant-rules {
+  padding: clamp(14px, 4vw, 19px);
+}
+
+.participant-rules .drunk-rules-heading {
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.participant-rules .drunk-rules-heading .kicker {
+  font-size: clamp(.84rem, 3.5vw, .96rem);
+}
+
+.participant-rules .drunk-rules-heading h2 {
+  font-size: clamp(1.42rem, 6vw, 1.95rem);
+  line-height: 1.08;
+}
+
+.participant-rules .drunk-rules-grid {
+  gap: 11px;
+}
+
+.participant-rules .drunk-rule {
+  grid-template-columns: clamp(56px, 15vw, 66px) minmax(0, 1fr);
+  gap: 11px;
+  padding: 11px;
+}
+
+.participant-rules .drunk-rule > b {
+  min-height: 52px;
+  font-family: var(--font-condensed);
+  font-size: clamp(1rem, 4.2vw, 1.12rem);
+  font-weight: 900;
+}
+
+.participant-rules .drunk-rule strong {
+  font-family: var(--font-condensed);
+  font-size: clamp(1.12rem, 4.8vw, 1.28rem);
+  font-weight: 900;
+  letter-spacing: .005em;
+  line-height: 1.08;
+}
+
+.participant-rules .drunk-rule span {
+  color: #2f1b12;
+  font-size: clamp(.96rem, 4vw, 1.08rem);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Portrait phones previously used object-fit: cover, cropping either the
+   Moose or the possum. Show the complete illustration and use a darkened copy
+   as a theatrical backdrop so the letterboxing still feels intentional. */
+@media (orientation: portrait) and (max-width: 900px) {
+  .tv-shower-surprise.surface-player {
+    background:
+      linear-gradient(rgba(24, 11, 12, .62), rgba(24, 11, 12, .72)),
+      url('../assets/moose-shower-surprise.webp') center / cover no-repeat,
+      #180b0c;
+  }
+
+  .tv-shower-surprise.surface-player .tv-shower-surprise-image {
+    inset: clamp(68px, 9dvh, 94px) 0 clamp(76px, 10dvh, 112px);
+    width: auto;
+    height: auto;
+    padding-inline: clamp(4px, 1.5vw, 10px);
+    object-fit: contain;
+    object-position: center center;
+    background: rgba(24, 11, 12, .48);
+    animation: tvSurprisePortraitReveal .8s cubic-bezier(.16, .78, .2, 1) both;
+  }
+}
+
+@keyframes tvSurprisePortraitReveal {
+  0% {
+    opacity: 0;
+    transform: scale(.94);
+    filter: saturate(.62) contrast(1.18) brightness(1.18);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: saturate(1.08) contrast(1.06) brightness(.93);
+  }
+}
