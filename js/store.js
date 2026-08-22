@@ -1,7 +1,12 @@
 import { activeBottlesFromDraft } from './setup.js';
 import { sanitizeTastingNotesByLetter, tastingNotesFromResponses } from './tasting-notes.js';
-import { createPlayerRegistrationSlots, normalizePlayerName } from './registration.js';
+import {
+  createPlayerRegistrationSlots,
+  isRegistrationContentionError,
+  normalizePlayerName,
+} from './registration.js';
 import { emptyFinaleState, fullFinaleState } from './finale.js';
+import { subscribeToFirebaseGame } from './live-game-subscription.js';
 
 const FIREBASE_VERSION = '12.16.0';
 const LOCAL_PREFIX = 'blind-bourbon-derby::';
@@ -143,6 +148,33 @@ class LocalStore {
     return snapshot;
   }
 
+  subscribeGame(code, options, onValue, onError) {
+    const normalizedCode = normalizeCode(code);
+    let stopped = false;
+    const publish = async () => {
+      if (stopped) return;
+      try {
+        onValue(await this.loadGame(normalizedCode, options));
+      } catch (error) {
+        onError?.(error);
+      }
+    };
+    const onMessage = (event) => {
+      if (event.data?.type === 'changed' && event.data.code === normalizedCode) publish();
+    };
+    const onStorage = (event) => {
+      if (event.key === this.key(normalizedCode)) publish();
+    };
+    this.channel?.addEventListener('message', onMessage);
+    window.addEventListener('storage', onStorage);
+    publish();
+    return () => {
+      stopped = true;
+      this.channel?.removeEventListener('message', onMessage);
+      window.removeEventListener('storage', onStorage);
+    };
+  }
+
   async claimPlayer(code, playerId) {
     const data = this.read(code);
     if (!data) throw new Error('Game not found.');
@@ -186,20 +218,26 @@ class LocalStore {
   }
 
   async saveResponse(code, playerId, letter, patch, progress = null) {
+    return this.saveResponses(code, playerId, [{ letter, patch }], progress);
+  }
+
+  async saveResponses(code, playerId, changes, progress = null) {
     const data = this.read(code);
     if (!data) throw new Error('Game not found.');
-    const id = responseId(playerId, letter);
-    const index = data.responses.findIndex((response) => response.id === id);
-    const next = {
-      ...(index >= 0 ? data.responses[index] : {}),
-      id,
-      playerId,
-      bottleLetter: letter,
-      ...patch,
-      updatedAt: nowIso(),
-    };
-    if (index >= 0) data.responses[index] = next;
-    else data.responses.push(next);
+    changes.forEach(({ letter, patch }) => {
+      const id = responseId(playerId, letter);
+      const index = data.responses.findIndex((response) => response.id === id);
+      const next = {
+        ...(index >= 0 ? data.responses[index] : {}),
+        id,
+        playerId,
+        bottleLetter: letter,
+        ...patch,
+        updatedAt: nowIso(),
+      };
+      if (index >= 0) data.responses[index] = next;
+      else data.responses.push(next);
+    });
     const player = data.players.find((item) => item.id === playerId);
     const publicProgress = normalizeScoreboardProgress(progress);
     if (player && publicProgress) Object.assign(player, publicProgress);
@@ -391,9 +429,11 @@ class FirebaseStore {
 
   async init() {
     const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
-    const appApi = await import(`${base}/firebase-app.js`);
-    const authApi = await import(`${base}/firebase-auth.js`);
-    const firestoreApi = await import(`${base}/firebase-firestore.js`);
+    const [appApi, authApi, firestoreApi] = await Promise.all([
+      import(`${base}/firebase-app.js`),
+      import(`${base}/firebase-auth.js`),
+      import(`${base}/firebase-firestore.js`),
+    ]);
     const app = appApi.initializeApp(this.config);
     const auth = authApi.getAuth(app);
     await authApi.setPersistence(auth, authApi.browserLocalPersistence);
@@ -480,7 +520,7 @@ class FirebaseStore {
     const bottles = bottlesSnap.docs.map((item) => item.data());
 
     let detailDocs = [];
-    if (isHost) {
+    if (role === 'host' && isHost) {
       detailDocs = (await getDocs(collection(db, 'games', code, 'bottleDetails'))).docs;
     } else if (role === 'scoreboard') {
       const visibleLetters = bottles.filter((bottle) => bottle.revealed).map((bottle) => bottle.letter);
@@ -490,7 +530,8 @@ class FirebaseStore {
     const details = Object.fromEntries(detailDocs.map((item) => [item.id, item.data()]));
 
     let responses = [];
-    const canReadAll = isHost || role === 'host' || (role === 'scoreboard' && (game.phase === 'reveal' || game.phase === 'final'));
+    const canReadAll = (role === 'host' && isHost)
+      || (role === 'scoreboard' && (game.phase === 'reveal' || game.phase === 'final'));
     try {
       if (canReadAll) {
         const responsesSnap = await getDocs(collection(db, 'games', code, 'responses'));
@@ -504,6 +545,18 @@ class FirebaseStore {
     }
 
     return { game, players, bottles, details, responses };
+  }
+
+  subscribeGame(code, options, onValue, onError) {
+    return subscribeToFirebaseGame({
+      api: this.api,
+      code: normalizeCode(code),
+      uid: this.uid,
+      role: options.role,
+      playerId: options.playerId,
+      onValue,
+      onError,
+    });
   }
 
   async claimPlayer(code, playerId) {
@@ -522,16 +575,16 @@ class FirebaseStore {
   async registerPlayer(code, name) {
     const playerName = normalizePlayerName(name);
     if (!playerName) throw new Error('Enter a player name first.');
-    const { db, doc, getDocs, collection, query, orderBy, runTransaction, serverTimestamp } = this.api;
+    const { db, doc, getDoc, getDocs, collection, query, orderBy, runTransaction, serverTimestamp } = this.api;
     code = normalizeCode(code);
     const playersSnap = await getDocs(query(collection(db, 'games', code, 'players'), orderBy('order')));
     const owned = playersSnap.docs.find((item) => item.data().active !== false && item.data().claimedBy === this.uid);
     if (owned) return owned.id;
     const available = playersSnap.docs.filter((item) => item.data().active === false && !item.data().claimedBy);
     for (const candidate of available) {
+      const ref = doc(db, 'games', code, 'players', candidate.id);
       try {
         const registeredId = await runTransaction(db, async (transaction) => {
-          const ref = doc(db, 'games', code, 'players', candidate.id);
           const snap = await transaction.get(ref);
           if (!snap.exists() || snap.data().active !== false || snap.data().claimedBy) {
             throw new Error('REGISTRATION_SLOT_TAKEN');
@@ -546,7 +599,15 @@ class FirebaseStore {
         });
         return registeredId;
       } catch (error) {
-        if (error?.message !== 'REGISTRATION_SLOT_TAKEN') throw error;
+        if (!isRegistrationContentionError(error)) throw error;
+        if (error?.message === 'REGISTRATION_SLOT_TAKEN') continue;
+
+        // Firestore rules can surface a simultaneous claim as permission-denied
+        // because the winning write changes the slot before the losing commit
+        // is evaluated. Verify that the slot really was taken before moving to
+        // the next one, so a genuine rules/configuration error is never hidden.
+        const latest = await getDoc(ref);
+        if (!latest.exists() || (latest.data().active === false && !latest.data().claimedBy)) throw error;
       }
     }
     throw new Error('Registration is closed. All 10 player spots are taken.');
@@ -561,22 +622,24 @@ class FirebaseStore {
   }
 
   async saveResponse(code, playerId, letter, patch, progress = null) {
-    const { db, doc, setDoc, updateDoc, serverTimestamp } = this.api;
+    return this.saveResponses(code, playerId, [{ letter, patch }], progress);
+  }
+
+  async saveResponses(code, playerId, changes, progress = null) {
+    const { db, doc, writeBatch, serverTimestamp } = this.api;
     code = normalizeCode(code);
-    await setDoc(doc(db, 'games', code, 'responses', responseId(playerId, letter)), {
-      playerId,
-      bottleLetter: letter,
-      ...patch,
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
+    const batch = writeBatch(db);
+    changes.forEach(({ letter, patch }) => {
+      batch.set(doc(db, 'games', code, 'responses', responseId(playerId, letter)), {
+        playerId,
+        bottleLetter: letter,
+        ...patch,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    });
     const publicProgress = normalizeScoreboardProgress(progress);
-    if (!publicProgress) return;
-    try {
-      await updateDoc(doc(db, 'games', code, 'players', playerId), publicProgress);
-    } catch (error) {
-      // Keep the scorecard save successful during a staggered web/rules deployment.
-      console.warn('Live scoreboard progress could not be published yet:', error);
-    }
+    if (publicProgress) batch.update(doc(db, 'games', code, 'players', playerId), publicProgress);
+    await batch.commit();
   }
 
   async completeEasterEgg(code, playerId, phase) {

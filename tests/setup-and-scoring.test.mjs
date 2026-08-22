@@ -499,7 +499,7 @@ test('the third press opens the shower surprise and dismissal persists until a n
   assert.match(appSource, /surprise\?\.remove\(\)/);
 });
 
-test('silent polling keeps the shower reveal mounted until its curtain is closed', () => {
+test('silent live updates keep the shower reveal mounted until its curtain is closed', () => {
   assert.equal(shouldRenderAfterSnapshot({ silent: false, surpriseOpen: true }), true);
   assert.equal(shouldRenderAfterSnapshot({ silent: true, textEditing: true }), false);
   assert.equal(shouldRenderAfterSnapshot({ silent: true, surpriseOpen: true }), false);
@@ -509,7 +509,7 @@ test('silent polling keeps the shower reveal mounted until its curtain is closed
   for (let poll = 0; poll < 4; poll += 1) {
     if (shouldRenderAfterSnapshot({ silent: true, surpriseOpen: true })) renderCount += 1;
   }
-  assert.equal(renderCount, 1, 'The open shower dialog must survive repeated polling cycles');
+  assert.equal(renderCount, 1, 'The open shower dialog must survive repeated live-update cycles');
 });
 
 test('the host results embed has no Easter-egg renderer or controls', () => {
@@ -979,6 +979,7 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
     './js/tasting-notes.js',
     './js/registration.js',
     './js/finale.js',
+    './js/live-game-subscription.js',
     './assets/moose-bourbon-creek.webp',
     './assets/moose-moonshiner.webp',
     './assets/moose-game-show-host.webp',
@@ -990,13 +991,17 @@ test('the service worker precaches TV assets and refreshes standalone boards saf
   ]) {
     assert.ok(serviceWorkerSource.includes(`'${asset}'`), `Expected the service worker to precache ${asset}`);
   }
-  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v17-drunk-rules'/);
-  assert.doesNotMatch(serviceWorkerSource, /blind-bourbon-derby-v11-phone-king-centering/);
+  assert.match(serviceWorkerSource, /CACHE_NAME = 'blind-bourbon-derby-v\d+-[a-z0-9-]+'/);
   const codeAssetStart = serviceWorkerSource.indexOf('if (isCodeAsset)');
   const codeAssetEnd = serviceWorkerSource.indexOf('\n  event.respondWith(', codeAssetStart);
   assert.ok(codeAssetStart >= 0 && codeAssetEnd > codeAssetStart, 'Expected a dedicated code-asset fetch path');
   const codeAssetFetchSource = serviceWorkerSource.slice(codeAssetStart, codeAssetEnd);
-  assert.match(codeAssetFetchSource, /fetch\(request\)[\s\S]*\.catch\(\(\) => caches\.match\(request\)\)/);
+  assert.match(codeAssetFetchSource, /newestCodeOrCache\(request\)/);
+  const newestCodeStart = serviceWorkerSource.indexOf('async function newestCodeOrCache');
+  const newestCodeEnd = serviceWorkerSource.indexOf("self.addEventListener('fetch'", newestCodeStart);
+  const newestCodeSource = serviceWorkerSource.slice(newestCodeStart, newestCodeEnd);
+  assert.match(newestCodeSource, /fetch\(request, \{ cache: 'no-store' \}\)/);
+  assert.match(newestCodeSource, /cache\.match\(request, \{ ignoreSearch: true \}\)/);
   assert.doesNotMatch(codeAssetFetchSource, /cached \|\| network/);
   assert.match(serviceWorkerSource, /clients\.matchAll\(\{ type: 'window' \}\)/);
   assert.match(serviceWorkerSource, /searchParams\.get\('view'\) === 'scoreboard'/);

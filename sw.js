@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blind-bourbon-derby-v21-master-reset';
+const CACHE_NAME = 'blind-bourbon-derby-v23-event-guardrails';
 const APP_SHELL = [
   './',
   './index.html',
@@ -10,12 +10,14 @@ const APP_SHELL = [
   './js/claim-guard.js',
   './js/master-reset.js',
   './js/store.js',
+  './js/live-game-subscription.js',
   './js/registration.js',
   './js/finale.js',
   './js/scoring.js',
   './js/scoreboard.js',
   './js/game-rules.js',
   './js/easter-egg.js',
+  './js/event-guardrails.js',
   './js/tasting-notes.js',
   './js/setup.js',
   './assets/derby-banner.webp',

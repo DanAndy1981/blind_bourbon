@@ -1,5 +1,5 @@
-// Preserve a typed player name across the app's polling-driven DOM refreshes.
-// The main app intentionally redraws its current screen when Firebase changes;
+// Preserve a typed player name across live-data-driven DOM refreshes.
+// The main app intentionally redraws its current screen when shared state changes;
 // this tiny companion keeps an unfinished registration form from losing input.
 (() => {
   'use strict';

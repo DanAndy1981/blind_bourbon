@@ -28,6 +28,7 @@ import {
   renderEasterEgg,
   shouldRenderAfterSnapshot,
 } from './easter-egg.js';
+import { phaseAdvanceWarning } from './event-guardrails.js';
 
 const root = document.querySelector('#app');
 const LETTERS = BOTTLE_LETTERS;
@@ -51,8 +52,19 @@ const state = {
   error: null,
   polling: false,
   pollTimer: null,
-  saveTimers: new Map(),
+  reconnectTimer: null,
+  unsubscribeGame: null,
+  resolveInitialUpdate: null,
+  routeGeneration: 0,
+  saveTimer: null,
+  saveVersion: 0,
+  responseSaveRunning: false,
+  pendingResponsePatches: new Map(),
+  failedResponseLetters: new Set(),
   saveStatus: 'saved',
+  connectionStatus: 'connecting',
+  lastSyncAt: null,
+  hostActionBusy: false,
   easterEggSessions: new Map(),
   lastFinaleCueId: null,
 };
@@ -138,9 +150,55 @@ function isEasterEggSurpriseOpen() {
 function setSaveStatus(status, message = '') {
   state.saveStatus = status;
   const el = document.querySelector('#save-status');
-  if (!el) return;
-  el.dataset.status = status;
-  el.textContent = message || (status === 'saving' ? 'Saving…' : status === 'error' ? 'Save failed' : 'Saved');
+  if (el) {
+    el.dataset.status = status;
+    el.textContent = message || (status === 'saving' ? 'Saving…' : status === 'error' ? 'Save failed' : 'Saved');
+  }
+  const retry = document.querySelector('#save-retry');
+  if (retry) retry.hidden = status !== 'error';
+}
+
+function lastSyncText() {
+  if (!state.lastSyncAt) return 'no update yet';
+  return `last update ${state.lastSyncAt.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  })}`;
+}
+
+function connectionStatusText() {
+  if (!state.store?.isShared) return 'Local demo';
+  if (!state.code) return 'Live play ready';
+  if (state.connectionStatus === 'live') return 'Live';
+  if (state.connectionStatus === 'offline') return `Offline · ${lastSyncText()}`;
+  if (state.connectionStatus === 'reconnecting') return `Reconnecting · ${lastSyncText()}`;
+  return 'Connecting…';
+}
+
+function connectionVisualStatus() {
+  if (!state.store?.isShared) return 'local';
+  if (!state.code) return 'live';
+  return state.connectionStatus;
+}
+
+function connectionStatusMarkup(extraClass = '') {
+  const status = connectionVisualStatus();
+  return `<button type="button" class="connection-chip ${esc(status)} ${extraClass}" data-connection-status data-action="retry-connection" title="Tap to reconnect or refresh live game data">${esc(connectionStatusText())}</button>`;
+}
+
+function updateConnectionStatusUi() {
+  root.querySelectorAll('[data-connection-status]').forEach((element) => {
+    const status = connectionVisualStatus();
+    element.className = `connection-chip ${status}${element.classList.contains('scoreboard-connection-chip') ? ' scoreboard-connection-chip' : ''}`;
+    element.textContent = connectionStatusText();
+  });
+}
+
+function setConnectionStatus(status, { updated = false } = {}) {
+  state.connectionStatus = status;
+  if (updated) state.lastSyncAt = new Date();
+  updateConnectionStatusUi();
 }
 
 function toast(message, type = 'info') {
@@ -176,41 +234,190 @@ function isHost(snapshot = state.snapshot) {
   return Boolean(snapshot && (state.store.mode === 'local' || snapshot.game.hostUid === state.store.uid));
 }
 
-async function loadSnapshot({ silent = false } = {}) {
+function setHostActionBusy(busy) {
+  state.hostActionBusy = busy;
+  const workspace = root.querySelector('[data-host-workspace]');
+  if (!workspace) return;
+  workspace.inert = busy;
+  workspace.classList.toggle('is-saving', busy);
+  workspace.setAttribute('aria-busy', String(busy));
+}
+
+async function safeHostAction(fn, options = {}) {
+  if (state.hostActionBusy) {
+    toast('Hold on—the last host change is still saving.', 'error');
+    return null;
+  }
+  setHostActionBusy(true);
+  try {
+    return await safeAction(fn, options);
+  } finally {
+    setHostActionBusy(false);
+  }
+}
+
+function roleForView() {
+  return state.view === 'host' ? 'host' : state.view === 'scoreboard' ? 'scoreboard' : 'player';
+}
+
+function overlayPendingResponses(snapshot) {
+  if (!snapshot || !state.playerId || !state.pendingResponsePatches.size) return snapshot;
+  state.pendingResponsePatches.forEach((fields, letter) => {
+    let response = snapshot.responses.find((item) => (
+      item.playerId === state.playerId && item.bottleLetter === letter
+    ));
+    if (!response) {
+      response = {
+        id: `${state.playerId}_${letter}`,
+        playerId: state.playerId,
+        bottleLetter: letter,
+      };
+      snapshot.responses.push(response);
+    }
+    fields.forEach(({ value }, field) => {
+      response[field] = value;
+    });
+  });
+  return snapshot;
+}
+
+function applySnapshot(snapshot, { silent = false } = {}) {
+  const previousPhase = state.snapshot?.game?.phase || null;
+  const previousPlayerId = state.playerId;
+  state.snapshot = overlayPendingResponses(snapshot);
+  if (snapshot) {
+    const storedPlayer = getStoredPlayer(state.code);
+    const mine = ownedPlayer(snapshot);
+    if (mine) {
+      state.playerId = mine.id;
+      storePlayer(state.code, mine.id);
+    } else {
+      state.playerId = null;
+      if (storedPlayer) storePlayer(state.code, null);
+    }
+    const activeLetters = snapshot.bottles
+      .filter((bottle) => bottle.active !== false)
+      .sort((a, b) => a.order - b.order)
+      .map((bottle) => bottle.letter);
+    if (!state.currentLetter || !activeLetters.includes(state.currentLetter)) {
+      state.currentLetter = activeLetters[0] || null;
+    }
+  }
+  const phaseChanged = previousPhase !== (snapshot?.game?.phase || null);
+  const ownershipChanged = previousPlayerId !== state.playerId;
+  const mustRenderTransition = phaseChanged || ownershipChanged;
+  // Keep the third-press reveal mounted until the viewer closes its curtain.
+  // Live updates still refresh state in the background, but replacing the DOM
+  // here would restart the curtain animation.
+  if (shouldRenderAfterSnapshot({
+    silent,
+    textEditing: !mustRenderTransition && (isTextEditing() || state.hostTab === 'setup'),
+    surpriseOpen: !mustRenderTransition && isEasterEggSurpriseOpen(),
+  })) render();
+}
+
+async function loadSnapshot({ silent = false, trackConnection = false } = {}) {
   if (!state.code || state.polling) return;
   state.polling = true;
   try {
-    const role = state.view === 'host' ? 'host' : state.view === 'scoreboard' ? 'scoreboard' : 'player';
     const storedPlayer = getStoredPlayer(state.code);
-    const snapshot = await state.store.loadGame(state.code, { role, playerId: storedPlayer });
-    state.snapshot = snapshot;
-    if (snapshot) {
-      const mine = ownedPlayer(snapshot);
-      if (mine) {
-        state.playerId = mine.id;
-        storePlayer(state.code, mine.id);
-      } else {
-        state.playerId = null;
-        if (storedPlayer) storePlayer(state.code, null);
-      }
-      const activeLetters = snapshot.bottles.filter((bottle) => bottle.active !== false).sort((a, b) => a.order - b.order).map((bottle) => bottle.letter);
-      if (!state.currentLetter || !activeLetters.includes(state.currentLetter)) state.currentLetter = activeLetters[0] || null;
-    }
-    // Keep the third-press reveal mounted until the viewer closes its curtain.
-    // Polling still refreshes state in the background, but replacing the DOM here
-    // would restart the curtain animation every few seconds.
-    if (shouldRenderAfterSnapshot({
-      silent,
-      textEditing: isTextEditing(),
-      surpriseOpen: isEasterEggSurpriseOpen(),
-    })) render();
+    const snapshot = await state.store.loadGame(state.code, { role: roleForView(), playerId: storedPlayer });
+    applySnapshot(snapshot, { silent });
+    if (trackConnection) setConnectionStatus(navigator.onLine ? 'reconnecting' : 'offline', { updated: true });
   } finally {
     state.polling = false;
   }
 }
 
-async function route() {
+function stopGameUpdates() {
+  state.resolveInitialUpdate?.();
+  state.resolveInitialUpdate = null;
+  state.unsubscribeGame?.();
+  state.unsubscribeGame = null;
   clearInterval(state.pollTimer);
+  state.pollTimer = null;
+  clearTimeout(state.reconnectTimer);
+  state.reconnectTimer = null;
+}
+
+function startFallbackPolling(generation) {
+  clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(() => {
+    if (generation !== state.routeGeneration) return;
+    const shouldPoll = state.view === 'scoreboard' || document.visibilityState === 'visible';
+    if (shouldPoll && state.hostTab !== 'setup') {
+      loadSnapshot({ silent: true, trackConnection: true }).catch((error) => console.warn('Fallback refresh failed:', error));
+    }
+  }, 5000);
+}
+
+function scheduleGameReconnect(generation, delay = 3000) {
+  clearTimeout(state.reconnectTimer);
+  state.reconnectTimer = setTimeout(() => {
+    state.reconnectTimer = null;
+    if (generation !== state.routeGeneration || !state.code || !navigator.onLine) return;
+    startGameUpdates(generation).catch((error) => console.warn('Live reconnect failed:', error));
+  }, delay);
+}
+
+function startGameUpdates(generation = state.routeGeneration, { waitForInitial = false } = {}) {
+  state.unsubscribeGame?.();
+  state.unsubscribeGame = null;
+  clearInterval(state.pollTimer);
+  state.pollTimer = null;
+  clearTimeout(state.reconnectTimer);
+  state.reconnectTimer = null;
+  if (!state.code || !state.store.subscribeGame) {
+    if (!waitForInitial) return Promise.resolve();
+    state.loading = false;
+    return loadSnapshot({ silent: false });
+  }
+
+  const code = state.code;
+  setConnectionStatus(navigator.onLine ? 'connecting' : 'offline');
+  const options = { role: roleForView(), playerId: getStoredPlayer(code) };
+  let initialPending = waitForInitial;
+  let resolveInitial;
+  const initialSnapshot = waitForInitial
+    ? new Promise((resolve) => { resolveInitial = resolve; })
+    : Promise.resolve();
+  const finishInitial = () => {
+    if (!initialPending) return;
+    initialPending = false;
+    if (state.resolveInitialUpdate === finishInitial) state.resolveInitialUpdate = null;
+    resolveInitial();
+  };
+  if (waitForInitial) state.resolveInitialUpdate = finishInitial;
+  state.unsubscribeGame = state.store.subscribeGame(code, options, (snapshot) => {
+    if (generation !== state.routeGeneration || code !== state.code) return;
+    const isInitial = initialPending;
+    if (isInitial) state.loading = false;
+    setConnectionStatus(navigator.onLine ? 'live' : 'offline', { updated: true });
+    applySnapshot(snapshot, { silent: !isInitial });
+    if (isInitial) finishInitial();
+  }, (error) => {
+    if (generation !== state.routeGeneration || code !== state.code) return;
+    console.error('Live game updates stopped:', error);
+    state.unsubscribeGame?.();
+    state.unsubscribeGame = null;
+    setConnectionStatus(navigator.onLine ? 'reconnecting' : 'offline');
+    toast('Live updates paused. Reconnecting with periodic refreshes…', 'error');
+    if (initialPending) state.loading = false;
+    loadSnapshot({ silent: !initialPending, trackConnection: true })
+      .catch((loadError) => console.warn('Live update recovery failed:', loadError))
+      .finally(() => {
+        if (!initialPending) return;
+        finishInitial();
+      });
+    startFallbackPolling(generation);
+    scheduleGameReconnect(generation);
+  });
+  return initialSnapshot;
+}
+
+async function route() {
+  stopGameUpdates();
+  const generation = ++state.routeGeneration;
   const params = getParams();
   const nextCode = normalizeCode(params.get('game')) || null;
   const nextView = params.get('view') || (nextCode ? 'player' : 'home');
@@ -227,13 +434,8 @@ async function route() {
     return;
   }
   render();
-  await loadSnapshot();
-  state.loading = false;
-  render();
-  state.pollTimer = setInterval(() => {
-    const shouldPoll = state.view === 'scoreboard' || document.visibilityState === 'visible';
-    if (shouldPoll && state.hostTab !== 'setup') loadSnapshot({ silent: true });
-  }, 3500);
+  await startGameUpdates(generation, { waitForInitial: true });
+  if (generation !== state.routeGeneration) return;
 }
 
 function requestServiceWorkerUpdate() {
@@ -280,7 +482,7 @@ function shell(content) {
         </a>
         <div class="topbar-actions">
           ${state.code && game ? `<span class="game-code-chip">Game ${esc(game.code || state.code)}</span>` : ''}
-          <span class="store-chip ${state.store.isShared ? 'shared' : 'local'}">${esc(state.store.label)}</span>
+          ${connectionStatusMarkup()}
         </div>
       </header>
       ${modeNotice()}
@@ -296,6 +498,7 @@ function shell(content) {
 function scoreboardShell(content) {
   return `
     <div class="scoreboard-shell">${content}</div>
+    ${connectionStatusMarkup('scoreboard-connection-chip')}
     <div id="toast-tray" class="toast-tray" aria-live="polite"></div>`;
 }
 
@@ -311,6 +514,7 @@ function render() {
   document.body.classList.toggle('scoreboard-mode', isStandaloneScoreboard);
   root.innerHTML = isStandaloneScoreboard ? scoreboardShell(content) : shell(content);
   setSaveStatus(state.saveStatus);
+  updateConnectionStatusUi();
 }
 
 function renderLoading() {
@@ -559,6 +763,7 @@ function renderPlayerCard(player) {
       </div>
       <div class="save-cluster">
         <span id="save-status" class="save-status" data-status="${esc(state.saveStatus)}">Saved</span>
+        <button id="save-retry" class="btn btn-small btn-red save-retry" type="button" data-action="retry-responses" ${state.saveStatus === 'error' ? '' : 'hidden'}>Retry Save</button>
         <button class="btn btn-small btn-ghost" data-action="release-player">Switch Name</button>
       </div>
     </section>
@@ -700,7 +905,7 @@ function renderHost() {
       </section>`;
   }
   if (!state.hostDraft) state.hostDraft = makeHostDraft(snapshot);
-  return `
+  return `<div class="host-workspace ${state.hostActionBusy ? 'is-saving' : ''}" data-host-workspace aria-busy="${state.hostActionBusy}" ${state.hostActionBusy ? 'inert' : ''}>
     ${renderGameMasthead(snapshot.game, 'Facilitator Booth')}
     <section class="host-link-bar paper-panel ink-frame">
       <div><span class="kicker">Player Link</span><code>${esc(buildUrl(state.code).toString())}</code></div>
@@ -713,7 +918,9 @@ function renderHost() {
       <button class="${state.hostTab === 'setup' ? 'active' : ''}" data-action="host-tab" data-tab="setup">Event & Bottles</button>
       <button class="${state.hostTab === 'results' ? 'active' : ''}" data-action="host-tab" data-tab="results">Live Results</button>
     </nav>
-    ${state.hostTab === 'setup' ? renderHostSetup() : state.hostTab === 'results' ? renderScoreboardBody(true) : renderHostControl()}`;
+    ${state.hostTab === 'setup' ? renderHostSetup() : state.hostTab === 'results' ? renderScoreboardBody(true) : renderHostControl()}
+    <div class="host-saving-banner" role="status">Saving host change…</div>
+  </div>`;
 }
 
 function makeHostDraft(snapshot) {
@@ -1047,7 +1254,7 @@ function renderScoreboardBody(hostEmbed = false) {
       </section>
 
       <section class="tv-leaderboard paper-panel ink-frame">
-        <div class="scoreboard-section-title"><span>Bourbon Savant Leaderboard</span><small>Updates every few seconds</small></div>
+        <div class="scoreboard-section-title"><span>Bourbon Savant Leaderboard</span><small>Updates live</small></div>
         ${!scoreboardOpen || !leaderboardPlayers.length ? `<div class="leaderboard-locked"><strong>Scores are under wraps</strong><span>The host reveals each finish when the room is ready.</span></div>` : `
           <div class="leaderboard-list">
             ${leaderboardPlayers.map((player) => `<div class="leaderboard-row ${player.rank === 1 ? 'leader' : ''}">
@@ -1135,28 +1342,90 @@ function currentResponse(letter) {
   return response;
 }
 
+function pendingFieldsFor(letter) {
+  if (!state.pendingResponsePatches.has(letter)) state.pendingResponsePatches.set(letter, new Map());
+  return state.pendingResponsePatches.get(letter);
+}
+
+function hasPendingResponseChanges() {
+  return [...state.pendingResponsePatches.values()].some((fields) => fields.size > 0);
+}
+
+function syncResponseSaveStatus() {
+  if (state.responseSaveRunning) {
+    setSaveStatus('saving');
+  } else if (state.failedResponseLetters.size) {
+    setSaveStatus('error', 'Save failed');
+  } else if (hasPendingResponseChanges()) {
+    setSaveStatus('saving');
+  } else {
+    setSaveStatus('saved');
+  }
+}
+
+async function flushResponses() {
+  clearTimeout(state.saveTimer);
+  state.saveTimer = null;
+  if (state.responseSaveRunning || !state.snapshot || !state.playerId) return;
+
+  const captured = [];
+  state.pendingResponsePatches.forEach((fields, letter) => {
+    if (!fields.size) return;
+    captured.push({
+      letter,
+      entries: [...fields.entries()],
+      patch: Object.fromEntries([...fields].map(([field, item]) => [field, item.value])),
+    });
+  });
+  if (!captured.length) return;
+
+  state.responseSaveRunning = true;
+  syncResponseSaveStatus();
+  const highestCapturedVersion = Math.max(...captured.flatMap((item) => item.entries.map(([, entry]) => entry.version)));
+  let saved = false;
+  try {
+    const progress = summarizePlayerProgress({
+      bottles: state.snapshot.bottles,
+      responses: state.snapshot.responses.filter((item) => item.playerId === state.playerId),
+    });
+    await state.store.saveResponses(
+      state.code,
+      state.playerId,
+      captured.map(({ letter, patch }) => ({ letter, patch })),
+      progress,
+    );
+    saved = true;
+    captured.forEach(({ letter, entries }) => {
+      const current = state.pendingResponsePatches.get(letter);
+      entries.forEach(([field, entry]) => {
+        if (current?.get(field)?.version === entry.version) current.delete(field);
+      });
+      if (!current?.size) state.pendingResponsePatches.delete(letter);
+      state.failedResponseLetters.delete(letter);
+    });
+  } catch (error) {
+    console.error(error);
+    captured.forEach(({ letter }) => state.failedResponseLetters.add(letter));
+    toast(error.message || 'Could not save those answers.', 'error');
+  } finally {
+    state.responseSaveRunning = false;
+    syncResponseSaveStatus();
+    const hasNewerChanges = [...state.pendingResponsePatches.values()]
+      .some((fields) => [...fields.values()].some((entry) => entry.version > highestCapturedVersion));
+    if ((saved && hasPendingResponseChanges()) || hasNewerChanges) flushResponses();
+  }
+}
+
 function updateResponse(letter, field, value, { immediate = false, rerender = false } = {}) {
   const response = currentResponse(letter);
   response[field] = value;
-  setSaveStatus('saving');
-  const key = `${letter}::${field}`;
-  clearTimeout(state.saveTimers.get(key));
-  const save = async () => {
-    try {
-      const progress = summarizePlayerProgress({
-        bottles: state.snapshot.bottles,
-        responses: state.snapshot.responses.filter((item) => item.playerId === state.playerId),
-      });
-      await state.store.saveResponse(state.code, state.playerId, letter, { [field]: value }, progress);
-      setSaveStatus('saved');
-    } catch (error) {
-      console.error(error);
-      setSaveStatus('error', 'Save failed — tap again');
-      toast(error.message || 'Could not save that answer.', 'error');
-    }
-  };
-  if (immediate) save();
-  else state.saveTimers.set(key, setTimeout(save, SAVE_DELAY));
+  const version = ++state.saveVersion;
+  pendingFieldsFor(letter).set(field, { value, version });
+  state.failedResponseLetters.delete(letter);
+  syncResponseSaveStatus();
+  clearTimeout(state.saveTimer);
+  state.saveTimer = immediate ? null : setTimeout(flushResponses, SAVE_DELAY);
+  if (immediate) flushResponses();
   if (rerender) render();
 }
 
@@ -1202,6 +1471,7 @@ root.addEventListener('click', async (event) => {
 
   if (action === 'go-home') {
     event.preventDefault();
+    await flushResponses();
     navigate();
     return;
   }
@@ -1225,13 +1495,33 @@ root.addEventListener('click', async (event) => {
     window.location.href = url.toString();
     return;
   }
-  if (action === 'open-host') { navigate({ code: state.code, view: 'host' }); return; }
+  if (action === 'open-host') {
+    await flushResponses();
+    navigate({ code: state.code, view: 'host' });
+    return;
+  }
   if (action === 'open-scoreboard') {
     window.open(buildUrl(state.code, 'scoreboard').toString(), '_blank', 'noopener,noreferrer');
     return;
   }
-  if (action === 'open-player') { navigate({ code: state.code }); return; }
+  if (action === 'open-player') {
+    await flushResponses();
+    navigate({ code: state.code });
+    return;
+  }
   if (action === 'refresh') { await loadSnapshot(); toast('Game refreshed.'); return; }
+  if (action === 'retry-connection') {
+    if (!state.code) return;
+    if (!navigator.onLine) {
+      setConnectionStatus('offline');
+      toast('This device is offline. Reconnect to Wi-Fi or cellular data first.', 'error');
+      return;
+    }
+    setConnectionStatus(navigator.onLine ? 'connecting' : 'offline');
+    await startGameUpdates(state.routeGeneration, { waitForInitial: true });
+    if (state.connectionStatus === 'live') toast('Live connection refreshed.');
+    return;
+  }
   if (action === 'copy-link') {
     await navigator.clipboard.writeText(buildUrl(state.code).toString());
     toast('Player link copied.');
@@ -1248,19 +1538,24 @@ root.addEventListener('click', async (event) => {
   }
   if (action === 'release-player') {
     if (!state.playerId) return;
+    const playerName = state.snapshot?.players?.find((player) => player.id === state.playerId)?.name || 'this player card';
+    if (!confirm(`Switch away from ${playerName}?\n\nSaved answers will stay, but this phone will release the player card.`)) return;
+    await flushResponses();
     await safeAction(() => state.store.releasePlayer(state.code, state.playerId));
     storePlayer(state.code, null);
     state.playerId = null;
-    await loadSnapshot();
+    await startGameUpdates(state.routeGeneration, { waitForInitial: true });
     return;
   }
   if (action === 'set-sample') {
+    flushResponses();
     state.currentLetter = button.dataset.letter;
     render();
     window.scrollTo({ top: document.querySelector('.sample-tabs')?.offsetTop - 20 || 0, behavior: 'smooth' });
     return;
   }
   if (action === 'sample-prev' || action === 'sample-next') {
+    flushResponses();
     const letters = state.snapshot.bottles.filter((bottle) => bottle.active !== false).sort((a, b) => a.order - b.order).map((bottle) => bottle.letter);
     const index = letters.indexOf(state.currentLetter);
     const delta = action === 'sample-prev' ? -1 : 1;
@@ -1277,6 +1572,10 @@ root.addEventListener('click', async (event) => {
     updateResponse(button.dataset.letter, button.dataset.field, button.dataset.value, { immediate: true, rerender: true });
     return;
   }
+  if (action === 'retry-responses') {
+    await flushResponses();
+    return;
+  }
   if (action === 'host-tab') {
     if (state.hostTab === 'setup') syncHostDraftFromForm();
     state.hostTab = button.dataset.tab;
@@ -1287,6 +1586,12 @@ root.addEventListener('click', async (event) => {
   if (action === 'set-phase') {
     const nextPhase = button.dataset.phase;
     const calc = calculateGame(state.snapshot);
+    const warning = phaseAdvanceWarning({
+      currentPhase: state.snapshot.game.phase,
+      nextPhase,
+      players: calc.playerResults,
+    });
+    if (warning && !confirm(warning.message)) return;
     const patch = { phase: nextPhase };
     if (nextPhase === 'higherLower') {
       patch.publicAverages = Object.fromEntries(calc.bottleResults.map((bottle) => [bottle.letter, {
@@ -1297,29 +1602,26 @@ root.addEventListener('click', async (event) => {
     if (nextPhase === 'tasting' || nextPhase === 'setup') patch.publicAverages = {};
     if (nextPhase === 'reveal' && !state.snapshot.game.finaleState) patch.finaleState = emptyFinaleState();
     if (nextPhase === 'final') patch.finaleState = fullFinaleState(state.snapshot.game, calc.playerResults);
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       if (nextPhase === 'final') {
         await Promise.all(calc.bottles.map((bottle) => state.store.revealBottle(state.code, bottle.letter, true)));
       }
       await state.store.updateGame(state.code, patch);
-      await loadSnapshot();
       toast(`Round changed to ${PHASES.find((phase) => phase.id === nextPhase)?.label}.`);
     });
     return;
   }
   if (action === 'set-finale-scene') {
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await updateFinale({ scene: button.dataset.scene });
-      await loadSnapshot();
     });
     return;
   }
   if (action === 'reveal-bottle' || action === 'hide-bottle') {
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       const reveal = action === 'reveal-bottle';
       await state.store.revealBottle(state.code, button.dataset.letter, reveal);
       await updateFinale({ scene: 'bottles' }, reveal ? { type: 'bottle', target: button.dataset.letter } : null);
-      await loadSnapshot();
     });
     return;
   }
@@ -1327,10 +1629,9 @@ root.addEventListener('click', async (event) => {
     const calc = calculateGame(state.snapshot);
     const next = calc.revealOrder.find((bottle) => !bottle.revealed);
     if (!next) return;
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await state.store.revealBottle(state.code, next.letter, true);
       await updateFinale({ scene: 'bottles' }, { type: 'bottle', target: next.letter });
-      await loadSnapshot();
       toast(`Sample ${next.letter} revealed: ${calc.detailsByLetter[next.letter]?.name || 'mystery bottle'}.`);
     });
     return;
@@ -1346,9 +1647,8 @@ root.addEventListener('click', async (event) => {
     };
     const [field, cueType, scene] = definitions[item] || [];
     if (!field) return;
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await updateFinale({ [field]: reveal, scene }, reveal ? { type: cueType } : null);
-      await loadSnapshot();
     });
     return;
   }
@@ -1359,9 +1659,8 @@ root.addEventListener('click', async (event) => {
     const reveal = action === 'reveal-player-result';
     if (reveal) ids.add(playerId);
     else ids.delete(playerId);
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await updateFinale({ revealedPlayerIds: [...ids], scene: 'players' }, reveal ? { type: 'player', target: playerId } : null);
-      await loadSnapshot();
     });
     return;
   }
@@ -1374,41 +1673,38 @@ root.addEventListener('click', async (event) => {
       .find((player) => !ids.has(player.id));
     if (!nextPlayer) return;
     ids.add(nextPlayer.id);
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await updateFinale({ revealedPlayerIds: [...ids], scene: 'players' }, { type: 'player', target: nextPlayer.id });
-      await loadSnapshot();
       toast(`#${nextPlayer.rank}: ${nextPlayer.name} revealed.`);
     });
     return;
   }
   if (action === 'reveal-final-board') {
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await updateFinale({ finalBoardRevealed: true, scene: 'awards' }, { type: 'finalBoard' }, { phase: 'final' });
-      await loadSnapshot();
       toast('The full final scoreboard is live.');
     });
     return;
   }
   if (action === 'hide-final-board') {
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await updateFinale({ finalBoardRevealed: false, scene: 'awards' }, null, { phase: 'reveal' });
-      await loadSnapshot();
     });
     return;
   }
   if (action === 'reset-claim') {
-    await safeAction(async () => {
+    const player = state.snapshot?.players?.find((item) => item.id === button.dataset.playerId);
+    if (!confirm(`Release ${player?.name || 'this player'}'s card?\n\nTheir saved answers will stay, but their phone will need to reclaim the card.`)) return;
+    await safeHostAction(async () => {
       await state.store.resetPlayerClaim(state.code, button.dataset.playerId);
-      await loadSnapshot();
       toast('Player card released.');
     });
     return;
   }
   if (action === 'reset-answers') {
     if (!confirm('Clear every player answer, bonus point, and reveal? This cannot be undone.')) return;
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await state.store.resetAnswers(state.code);
-      await loadSnapshot();
       toast('All tasting answers were reset.');
     });
   }
@@ -1434,7 +1730,7 @@ root.addEventListener('submit', async (event) => {
       await state.store.claimPlayer(state.code, playerId);
       state.playerId = playerId;
       storePlayer(state.code, playerId);
-      await loadSnapshot();
+      await startGameUpdates(state.routeGeneration, { waitForInitial: true });
       toast('Player card claimed. Good luck.');
     });
     return;
@@ -1446,7 +1742,7 @@ root.addEventListener('submit', async (event) => {
       const playerId = await state.store.registerPlayer(state.code, playerName);
       state.playerId = playerId;
       storePlayer(state.code, playerId);
-      await loadSnapshot();
+      await startGameUpdates(state.routeGeneration, { waitForInitial: true });
       toast('You are registered. Let the questionable decisions begin.');
     });
     return;
@@ -1456,7 +1752,7 @@ root.addEventListener('submit', async (event) => {
     syncCreateDraftFromForm();
     const bottles = activeBottlesFromDraft(state.createDraft.bottles);
     if (bottles.length < 2) { toast('Add at least two bottles.', 'error'); return; }
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       const code = await state.store.createGame({ ...state.createDraft, bottles });
       state.hostDraft = null;
       navigate({ code, view: 'host' });
@@ -1468,11 +1764,11 @@ root.addEventListener('submit', async (event) => {
     syncHostDraftFromForm();
     const bottles = activeBottlesFromDraft(state.hostDraft.bottles);
     if (bottles.length < 2) { toast('Keep at least two active bottles.', 'error'); return; }
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await state.store.saveSetup(state.code, { ...state.hostDraft, bottles });
       state.hostDraft = null;
       state.hostTab = 'control';
-      await loadSnapshot();
+      render();
       toast('Event and bottles saved.');
     });
   }
@@ -1499,18 +1795,27 @@ root.addEventListener('change', async (event) => {
   }
   const bonusInput = event.target.closest('[data-bonus-player]');
   if (bonusInput) {
-    await safeAction(async () => {
+    await safeHostAction(async () => {
       await state.store.setBonus(state.code, bonusInput.dataset.bonusPlayer, Number(bonusInput.value || 0));
-      await loadSnapshot({ silent: true });
       toast('Bonus points saved.');
     });
   }
 });
 
 window.addEventListener('popstate', route);
+window.addEventListener('offline', () => setConnectionStatus('offline'));
+window.addEventListener('online', () => {
+  setConnectionStatus('connecting');
+  if (state.code) startGameUpdates(state.routeGeneration).catch((error) => console.warn('Online reconnect failed:', error));
+  if (hasPendingResponseChanges()) flushResponses();
+});
 window.addEventListener('beforeunload', () => {
-  for (const timer of state.saveTimers.values()) clearTimeout(timer);
+  flushResponses();
+  stopGameUpdates();
   if (serviceWorkerUpdateTimer) clearInterval(serviceWorkerUpdateTimer);
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushResponses();
 });
 
 async function boot() {
