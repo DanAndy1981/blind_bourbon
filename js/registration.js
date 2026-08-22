@@ -1,8 +1,14 @@
 export const MAX_PLAYERS = 10;
 export const PLAYER_NAME_MAX_LENGTH = 48;
+const REGISTRATION_CONTENTION_CODES = new Set(['aborted', 'failed-precondition', 'permission-denied']);
 
 export function normalizePlayerName(name) {
   return String(name || '').trim().replace(/\s+/g, ' ').slice(0, PLAYER_NAME_MAX_LENGTH);
+}
+
+export function isRegistrationContentionError(error) {
+  return error?.message === 'REGISTRATION_SLOT_TAKEN'
+    || REGISTRATION_CONTENTION_CODES.has(error?.code);
 }
 
 function emptyPlayerSlot(order) {

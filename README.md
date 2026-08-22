@@ -72,6 +72,15 @@ Only rows with a Bourbon name are active. Blank setup rows never appear on playe
 
 The browser that creates a live game owns the facilitator controls through Firebase's anonymous sign-in. Use the same browser/device all night. Avoid clearing that browser's site data until the event is over.
 
+### Event-night checklist
+
+- Use a normal browser rather than an incognito/private window, especially for the facilitator.
+- Plug in the facilitator and TV devices, disable automatic sleep, and keep the booth and scoreboard open.
+- After publishing a new version, reload the facilitator and scoreboard once before creating the real game.
+- Watch the persistent **Live / Reconnecting / Offline** badge. It can be tapped to reconnect immediately.
+- Ask players to wait for **Saved** before locking their phones. If a write fails, their queued answers remain on the card and **Retry Save** sends them again.
+- Round changes warn when active players are unfinished, but the facilitator can deliberately continue when somebody has stepped away.
+
 ## GitHub Pages
 
 The project is intentionally deployable from the repository root:
@@ -95,6 +104,8 @@ blind-bourbon-derby/
 ├── sw.js
 ├── css/styles.css
 ├── js/app.js
+├── js/event-guardrails.js
+├── js/live-game-subscription.js
 ├── js/scoreboard.js
 ├── js/setup.js
 ├── js/store.js
@@ -108,4 +119,4 @@ blind-bourbon-derby/
 - Before the reveal, player documents expose only sanitized completion percentages and finished sample letters so the TV can animate progress without exposing anybody's guesses or rankings.
 - This is a party game, not a hardened competition platform. A technically determined guest could still inspect front-end behavior or attempt to manipulate his own answers.
 - Do not commit unrelated private Firebase credentials. Firebase's web configuration is designed to be present in client code; the included Firestore rules are what enforce access.
-- The app polls for changes roughly every few seconds, which is plenty quick for a tasting and keeps the code simple.
+- Live games use role-scoped Firestore listeners: the TV receives public progress immediately, each participant receives only that player's responses, and the facilitator receives the full scoring dataset.

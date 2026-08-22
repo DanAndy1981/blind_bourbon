@@ -19,9 +19,8 @@ jobs:
           node-version: '22'
       - name: Check JavaScript syntax
         run: |
-          node --check js/claim-guard.js
-          node --check js/registration-draft.js
-          node --check js/master-reset.js
-          node --check sw.js
+          for file in js/*.js sw.js; do
+            node --check "$file"
+          done
       - name: Run tests
         run: node --test tests/*.test.mjs

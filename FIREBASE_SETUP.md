@@ -71,7 +71,7 @@ From the project folder:
 python -m http.server 8000
 ```
 
-Open `http://localhost:8000`. The pill in the upper-right should say **Live shared mode** rather than **Local demo mode**.
+Open `http://localhost:8000`. The pill in the upper-right should say **Live play ready** rather than **Local demo**. Inside a game it changes to **Live**, **Connecting**, **Reconnecting**, or **Offline** so the host and TV can see the actual sync state.
 
 Recommended test:
 

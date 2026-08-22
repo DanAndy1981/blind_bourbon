@@ -13,7 +13,7 @@ test('registration guard retries the in-app route before hard reloading', () => 
   assert.doesNotMatch(claimGuard, /setInterval\([^]*?,\s*150\s*\)/);
 });
 
-test('root render guard preserves scroll across polling refreshes', () => {
+test('root render guard preserves scroll across live-data refreshes', () => {
   assert.match(claimGuard, /Object\.defineProperty\(root, 'innerHTML'/);
   assert.match(claimGuard, /const scrollBefore = window\.scrollY/);
   assert.match(claimGuard, /window\.scrollTo\(0, target\)/);
